@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace SlayerTools
 {
-    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "4.3.0")]
+    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "5.0.0")]
     public class Plugin : BasePlugin
     {
         internal static ManualLogSource L;
@@ -44,6 +44,8 @@ namespace SlayerTools
             SPPercent  = Config.Bind("Settings", "SPPercent", 10.0, "Percentage of SP added per press (minimum 10)");
             SpeedSteps = Config.Bind("Settings", "Speeds", "1,2,5,10", "Speed steps");
             Port       = Config.Bind("Overlay", "Port", 47823, "Local port (127.0.0.1) used by the overlay");
+
+            ToolsBehaviour.ApplyPendingRestore();
 
             try
             {
@@ -74,16 +76,23 @@ namespace SlayerTools
                 h.Patch(AccessTools.Method(typeof(PlayerInventory), "CalculateValues"),
                         prefix: new HarmonyMethod(typeof(Plugin), nameof(BeforeRecalc)),
                         postfix: new HarmonyMethod(typeof(Plugin), nameof(AfterRecalc)));
+                foreach (var (t, m) in new[] { (typeof(BossMapController), "PlayerHit"), (typeof(BossMapController), "PlayerPoison"), (typeof(BonusMapController), "SawHitted") })
+                    try { h.Patch(AccessTools.Method(t, m), prefix: new HarmonyMethod(typeof(Plugin), nameof(NoHit))); }
+                    catch (Exception e) { Log.LogWarning($"God mode {m}: {e.Message}"); }
+                try { h.Patch(AccessTools.Method(typeof(BossMapController), "TakeDamage"), prefix: new HarmonyMethod(typeof(Plugin), nameof(BossDmg))); }
+                catch (Exception e) { Log.LogWarning("One-hit bosses: " + e.Message); }
             }
             catch (Exception e) { Log.LogError("Anti-quit guard failed: " + e); }
 
             ClassInjector.RegisterTypeInIl2Cpp<ToolsBehaviour>();
             AddComponent<ToolsBehaviour>();
             Bridge.Start(Port.Value);
-            Log.LogInfo($"Slayer Tools 3.0 loaded. Overlay on 127.0.0.1:{Port.Value}, F2 to show it.");
+            Log.LogInfo($"Slayer Tools 5.0 loaded. Overlay on 127.0.0.1:{Port.Value}, F2 to show it.");
         }
 
         private static void MarkUserQuit() => UserWantsToQuit = true;
+        private static bool NoHit() => ToolsBehaviour.SkipPlayerHit();
+        private static void BossDmg(BossMapController __instance, ref float damage) => ToolsBehaviour.BossDamage(__instance, ref damage);
         private static void GameMenuChanged() { try { ToolsBehaviour.Instance?.OnGameMenuChanged(); } catch { } }
         private static void ShopToggled(bool show) { if (!show) GameMenuChanged(); }
 
@@ -213,9 +222,9 @@ namespace SlayerTools
         public bool ReadOnly;
     }
 
-    public class ToolsBehaviour : MonoBehaviour
+    public partial class ToolsBehaviour : MonoBehaviour
     {
-        public ToolsBehaviour(IntPtr ptr) : base(ptr) { Instance = this; LoadPinned(); }
+        public ToolsBehaviour(IntPtr ptr) : base(ptr) { Instance = this; LoadPinned(); LoadOptions(); }
         internal static ToolsBehaviour Instance;
 
         // ---------- pinned stats (survive recalculations and restarts) ----------
@@ -545,19 +554,25 @@ namespace SlayerTools
             var hg = NmGrid(home.transform, "grid").transform;
             NmButton(hg, () => "< Back to game", "Up Arrow", NmClose, home);
             NmButton(hg, () => "Actions", "Star", () => NmShow("actions"), home);
+            NmButton(hg, () => "Events", "Star Silver", () => NmShow("events"), home);
+            NmButton(hg, () => "Combat & chests", "Face", () => NmShow("combat"), home);
+            NmButton(hg, () => "Dashboard", "news", () => NmShow("dash"), home);
             NmButton(hg, () => "Inventory", "Checklist", () => NmShow("inv"), home);
             NmButton(hg, () => "Slayer Points", "Face", () => NmShow("sp"), home);
             NmButton(hg, () => "Boost", "Up Arrow", () => NmShow("boost"), home);
             NmButton(hg, () => "Quests", "Checklist", () => NmShow("quests"), home);
             NmButton(hg, () => "Enemies killed", "book_11", () => NmShow("enemies"), home);
             NmButton(hg, () => "Presets", "Star Silver", () => NmShow("presets"), home);
+            NmButton(hg, () => "Log", "book_11", () => NmShow("log"), home);
             NmButton(hg, () => "Settings", "drops_34", () => NmShow("settings"), home);
+            NmButton(hg, UndoLabel, "Up Arrow", DoUndo, home);
 
             // ---------- Actions ----------
             var act = NmNewPage("actions");
             NmButton(act.transform, () => StatsLine(), "Star", null, act, false).Let(g => Size(g, 90));
             var ag = NmGrid(act.transform, "grid").transform;
             NmButton(ag, () => "< Back", "Up Arrow", () => NmShow("home"), act);
+            NmButton(ag, UndoLabel, "Up Arrow", DoUndo, act);
             NmButton(ag, () => "+1 hour of coins", "Star", () => AddCoins(1), act);
             NmButton(ag, () => "+1 day of coins", "Star", () => AddCoins(24), act);
             NmButton(ag, () => "+1 week of coins", "Star Silver", () => AddCoins(168), act);
@@ -600,12 +615,15 @@ namespace SlayerTools
             NmButton(sg, () => "Pinned stats: " + pinned.Count, "Checklist", null, set);
             NmButton(sg, () => "Unpin all", "drops_34", UnpinAll, set);
             NmButton(sg, () => "Analyze the UI", "book_11", () => Toast("UI analyzed: " + DumpUI()), set);
+            NmButton(sg, UndoLabel, "Up Arrow", DoUndo, set);
+            NmBuildSaveSettings(sg, set);
             NmButton(set.transform, () =>
                 "Edited stats are pinned: the game no longer overwrites them\n" +
                 "(achievements, purchases, rage...), even after a restart.\n" +
                 "Keys: F6 speed  F7 coins  F8 SP  F9 portal  F10 rage  F11 analyze",
                 "news", null, set, false).Let(g => Size(g, 110));
 
+            NmBuildFeaturePages();
             NmBuildPresets();
             NmBuildQuests();
             NmBuildEnemies();
@@ -618,6 +636,7 @@ namespace SlayerTools
             var top = NmGrid(page.transform, "grid").transform;
             NmButton(top, () => "< Back", "Up Arrow", () => NmShow("home"), page);
             NmButton(top, () => title, "Checklist", null, page);
+            NmButton(top, UndoLabel, "Up Arrow", DoUndo, page);
             extra?.Invoke(page);
 
             if (nmInputTemplate == null)
@@ -629,10 +648,10 @@ namespace SlayerTools
             // search
             var searchRow = NmBox(page.transform, "search", false, 10, 54);
             NmButton(searchRow.transform, () => "Search", "news", null, page, false).Let(g => Size(g, 54, 150, 0));
-            nmSearch[key] = NmInput(searchRow.transform, "e.g. chance, damage, boost...");
+            nmSearch[key] = NmInput(searchRow.transform, "e.g. ruby, chance, damage...");
 
             // info line
-            NmButton(page.transform, () => RecentToast() ?? "Type a value in the box, then press Enter to apply it.", "news", null, page, false).Let(g => Size(g, 54));
+            NmButton(page.transform, () => RecentToast() ?? "Type a value then Enter.  x2 / x10 / Max = shortcuts.  Fav = top of the list.", "news", null, page, false).Let(g => Size(g, 54));
 
             // stat list: [name] [value box, Enter = apply] [Unpin]
             var list = NmBox(page.transform, "list", true, 6);
@@ -642,7 +661,7 @@ namespace SlayerTools
                 var prop = p;
                 var row = new NmRow { prop = prop, source = key };
                 row.go = NmBox(list.transform, "row " + prop.Name, false, 8, 46);
-                NmButton(row.go.transform, () => (key == "inv" && pinned.ContainsKey(prop.Name) ? "* " : "") + prop.Name, "news", null, page, false).Let(g => Size(g, 46, -1, 1));
+                NmButton(row.go.transform, () => (IsFav(key, prop.Name) ? "<color=#FFD24A>></color> " : "") + (key == "inv" && pinned.ContainsKey(prop.Name) ? "* " : "") + Pretty(prop.Name), "news", null, page, false).Let(g => Size(g, 46, -1, 1));
                 if (prop.ReadOnly)
                 {
                     NmButton(row.go.transform, () => ValueText(prop, target()) + "  (locked)", "news", null, page, false).Let(g => Size(g, 46, 250, 0));
@@ -653,8 +672,12 @@ namespace SlayerTools
                 }
                 else
                 {
+                    NmButton(row.go.transform, () => "x2", "news", () => Quick(key, prop, target, 2, null), page, false).Let(g => Size(g, 46, 64, 0));
+                    NmButton(row.go.transform, () => "x10", "news", () => Quick(key, prop, target, 10, null), page, false).Let(g => Size(g, 46, 72, 0));
+                    if (IsChance(prop.Name))
+                        NmButton(row.go.transform, () => "Max", "Star", () => Quick(key, prop, target, 1, 100), page, false).Let(g => Size(g, 46, 72, 0));
                     var input = NmInput(row.go.transform, "value");
-                    Size(input.gameObject, 46, 250, 0);
+                    Size(input.gameObject, 46, 210, 0);
                     input.text = EditText(prop, target());
                     input.onSubmit.AddListener((Action<string>)(txt =>
                     {
@@ -674,9 +697,11 @@ namespace SlayerTools
                     {
                         if (pinned.ContainsKey(prop.Name)) Unpin(prop.Name);
                     }, page, false).Let(g => Size(g, 46, 120, 0));
+                NmButton(row.go.transform, () => IsFav(key, prop.Name) ? "<color=#FFD24A>FAV</color>" : "fav", "news", () => ToggleFav(key, prop.Name), page, false).Let(g => Size(g, 46, 76, 0));
                 rows.Add(row);
             }
             nmRows[key] = rows;
+            SortRows(key);
         }
 
 
@@ -723,6 +748,16 @@ namespace SlayerTools
             if (!Presets().TryGetValue(name, out var p)) return;
             var inv = PlayerInventory.instance;
             if (inv == null) { Toast("Not in game yet"); return; }
+            BackupSave("before-preset");
+            var oldPinned = new Dictionary<string, double>(pinned);
+            var oldVals = new Dictionary<string, object>();
+            foreach (var kv in p) { var pr = FindInv(kv.Key); if (pr != null) try { oldVals[kv.Key] = pr.Prop.GetValue(inv); } catch { } }
+            PushUndo("preset " + name, () =>
+            {
+                var i2 = PlayerInventory.instance; if (i2 == null) return;
+                foreach (var kv in oldVals) try { FindInv(kv.Key).Prop.SetValue(i2, kv.Value); } catch { }
+                pinned.Clear(); foreach (var kv in oldPinned) pinned[kv.Key] = kv.Value; SavePinned();
+            });
             int n = 0;
             foreach (var kv in p)
             {
@@ -880,6 +915,8 @@ namespace SlayerTools
             {
                 if (nmEnemySel == null) { Toast("Pick an enemy first"); return; }
                 if (!TryParseNumber(nmEnemyValue.text, out double d)) { Toast("Invalid number"); return; }
+                var en0 = nmEnemySel; double old0 = en0.killCount;
+                PushUndo(EName(en0) + " kills", () => en0.killCount = old0);
                 nmEnemySel.killCount = Math.Max(0, d);
                 nmEnemyValue.text = "";
                 Toast(EName(nmEnemySel) + " : " + d.ToString("N0") + " kills (the achievement unlocks on the next kill)");
@@ -1022,7 +1059,8 @@ namespace SlayerTools
             if (inv == null) return "Waiting for the game...";
             var t = RecentToast();
             if (t != null) return t;
-            return $"Coins {Fmt(inv.coins)}   ·   CpS {Fmt(inv.coinsPerSecond)}\nSlayer Points {Fmt(SlayerPoints.points)}   ·   Souls {Fmt(SlayerPoints.soulsLeft)}";
+            var line = $"Coins {Fmt(inv.coins)}   ·   CpS {Fmt(inv.coinsPerSecond)}\nSlayer Points {Fmt(SlayerPoints.points)}   ·   Souls {Fmt(SlayerPoints.soulsLeft)}";
+            return VersionWarning != null ? "<color=#FF8A5A>" + VersionWarning + "</color>\n" + line : line;
         }
 
         private static string CdText(double? cd) => cd == null ? "" : cd.Value <= 0.05 ? "  (ready)" : $"  ({cd.Value:0} s)";
@@ -1059,16 +1097,17 @@ namespace SlayerTools
             if (key == "inv" || key == "sp") return SetProp(key, p.Name, text);
             if (target == null) return "Not in game yet";
             if (p.ReadOnly) return p.Name + " is locked";
+            RememberProp(p, target, Pretty(p.Name));
             try
             {
                 if (p.Prop.PropertyType == typeof(bool))
                 {
                     bool v = !(bool)p.Prop.GetValue(target); p.Prop.SetValue(target, v);
-                    return Toast(p.Name + " = " + OnOff(v));
+                    return Toast(Pretty(p.Name) + " = " + OnOff(v));
                 }
                 if (!TryParseNumber(text, out double d)) return Toast("Invalid number: " + text);
                 Write(p, target, d);
-                return Toast(p.Name + " = " + ValueText(p, target));
+                return Toast(Pretty(p.Name) + " = " + ValueText(p, target));
             }
             catch (Exception e) { return Toast("Error: " + e.GetBaseException().Message); }
         }
@@ -1122,7 +1161,7 @@ namespace SlayerTools
             if (nmLastFilter.TryGetValue(key, out var last) && last == q) return;
             nmLastFilter[key] = q;
             foreach (var r in rows)
-                r.go.SetActive(q.Length == 0 || r.prop.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0);
+                r.go.SetActive(q.Length == 0 || Matches(r.prop.Name, q));
         }
 
         private void NmRefresh(bool force = false)
@@ -1264,6 +1303,7 @@ namespace SlayerTools
         {
             toast = msg; toastSeq++; toastAt = Time.realtimeSinceStartup;
             Plugin.L.LogMessage(msg);
+            Journal(msg);
             return msg;
         }
 
@@ -1311,6 +1351,7 @@ namespace SlayerTools
             var inv = PlayerInventory.instance;
             if (inv == null) return Toast("Not in game yet");
             double add = Math.Max(inv.coinsPerSecond * 3600.0 * hours, 1000);
+            RememberCoinsAndSP("+" + Fmt(add) + " coins"); ResetRates();
             inv.AddCoins(add);
             if (lockCoins) lockedCoins = inv.coins;
             return Toast("+" + Fmt(add) + " coins");
@@ -1320,6 +1361,7 @@ namespace SlayerTools
         {
             if (PlayerInventory.instance == null) return Toast("Not in game yet");
             double add = Math.Max(SlayerPoints.points * percent / 100.0, 10);
+            RememberCoinsAndSP("+" + Fmt(add) + " Slayer Points"); ResetRates();
             SlayerPoints.AddSlayerPoints(add);
             return Toast("+" + Fmt(add) + " Slayer Points");
         }
@@ -1348,6 +1390,8 @@ namespace SlayerTools
             if (p.ReadOnly) return Toast(name + " is locked");
             if (!p.IsStatic && PlayerInventory.instance == null) return Toast("Not in game yet");
             object target = p.IsStatic ? null : (object)PlayerInventory.instance;
+            RememberProp(p, target, Pretty(name));
+            ResetRates();
             try
             {
                 var pt = p.Prop.PropertyType;
@@ -1356,7 +1400,7 @@ namespace SlayerTools
                     bool v = !(bool)p.Prop.GetValue(target);
                     p.Prop.SetValue(target, v);
                     if (!p.IsStatic) { pinned[name] = v ? 1 : 0; SavePinned(); }
-                    return Toast(name + " = " + (v ? "yes" : "no"));
+                    return Toast(Pretty(name) + " = " + (v ? "yes" : "no"));
                 }
                 if (!TryParseNumber(text, out double d)) return Toast("Invalid number: " + text);
                 if (pt == typeof(double)) p.Prop.SetValue(target, d);
@@ -1364,7 +1408,7 @@ namespace SlayerTools
                 else p.Prop.SetValue(target, (int)Math.Max(int.MinValue, Math.Min(int.MaxValue, d)));
                 if (name == "coins" && lockCoins) lockedCoins = d;
                 if (!p.IsStatic) { pinned[name] = Convert.ToDouble(p.Prop.GetValue(target)); SavePinned(); }
-                return Toast(name + " = " + Fmt(Convert.ToDouble(p.Prop.GetValue(target))));
+                return Toast(Pretty(name) + " = " + Fmt(Convert.ToDouble(p.Prop.GetValue(target))));
             }
             catch (Exception e) { return Toast("Error: " + e.GetBaseException().Message); }
         }
@@ -1385,6 +1429,7 @@ namespace SlayerTools
                     case "coins": msg = AddCoins(num("hours", 1)); break;
                     case "coinsx2":
                         if (PlayerInventory.instance == null) { msg = Toast("Not in game yet"); break; }
+                        RememberCoinsAndSP("coins x2"); ResetRates();
                         PlayerInventory.instance.coins *= 2; if (lockCoins) lockedCoins = PlayerInventory.instance.coins;
                         msg = Toast("Coins x2"); break;
                     case "sp": msg = AddSP(num("pct", 10)); break;
@@ -1445,7 +1490,7 @@ namespace SlayerTools
             nextSnapshot = Time.realtimeSinceStartup + 0.25f;
             var inv = PlayerInventory.instance;
             bool inGame = inv != null;
-            var sb = new StringBuilder("{\"ok\":true,\"version\":\"4.3.0\"");
+            var sb = new StringBuilder("{\"ok\":true,\"version\":\"5.0.0\"");
             sb.Append(",\"inGame\":").Append(inGame ? "true" : "false");
             sb.Append(",\"visible\":").Append(overlayVisible ? "true" : "false");
             sb.Append(",\"speed\":").Append(JN(Time.timeScale));
@@ -1493,6 +1538,7 @@ namespace SlayerTools
             }
             catch { }
 
+            try { FeaturesTick(); } catch (Exception e) { Plugin.L.LogWarning("5.0 features: " + e.Message); }
             NmUpdate();
             try { BuildSnapshot(); } catch (Exception e) { Plugin.L.LogWarning("Snapshot: " + e.Message); }
 

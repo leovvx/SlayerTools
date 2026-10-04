@@ -2,6 +2,18 @@
 
 All notable changes to Slayer Tools. Every version is tagged `vX.Y.Z`.
 
+## 5.0.0 - 2026-10-04
+
+Big feature release.
+
+- **Undo** the last 10 changes, **favorites** pinned to the top of the editors, **friendly stat names** with search on both names, **x2 / x10 / Max** quick buttons.
+- **Events** page: purple, silver, golden and normal boxes, giant, chest hunt key, Bonus Stage 1/2/3 (or yours) through a portal, ascension and ultra ascension (two-click confirmation), minions (finish missions, claim all, send all).
+- **Combat & chests** page: **reveal mimics** during chest hunts, show the content of every chest, god mode against bosses, one-hit bosses, automatic bonus spheres.
+- **Dashboard**: coins/min, SP/min, enemies/min, drop and gem chances, next ascension preview.
+- **Log** of everything the mod does (also in `BepInEx\slayer_log.txt`).
+- **Game version check**: an orange warning instead of silent failures after a game update.
+- **Save backups** of `savedata.sav` (session start, before ascension, before presets) and **restore** on next launch.
+
 ## 4.3.0 - 2026-10-04
 
 Native in-game menu (first version kept in this repository).
