@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- BepInEx 6 IL2CPP runs on .NET 6, so we target net6.0 directly
+       (the .NET 8 SDK can do that). References point to your BepInEx folder:
+       "interop" holds the assemblies BepInEx generates from the game on first launch. -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>SlayerTools</AssemblyName>
+    <RootNamespace>SlayerTools</RootNamespace>
+    <LangVersion>10</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>none</DebugType>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(BepInExDir)\core\BepInEx.Core.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\core\0Harmony.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\core\BepInEx.Unity.IL2CPP.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\core\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\core\Il2CppInterop.Common.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\Il2Cppmscorlib.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\UnityEngine.UI.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\UnityEngine.UIModule.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\Unity.TextMeshPro.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\UnityEngine.InputLegacyModule.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="$(BepInExDir)\interop\UnityEngine.TextRenderingModule.dll" Private="false" />
+  </ItemGroup>
+  <!-- dotnet build -c Release -p:Install=true  => copies the DLL into BepInEx\plugins -->
+  <Target Name="InstallPlugin" AfterTargets="Build" Condition="'$(Install)' == 'true'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins" />
+    <Message Importance="high" Text="SlayerTools.dll copied to $(BepInExDir)\plugins" />
+  </Target>
+</Project>

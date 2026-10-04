@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>disable</Nullable><AllowUnsafeBlocks>true</AllowUnsafeBlocks></PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(BepInExDir)\core\LibCpp2IL.dll" />
+    <Reference Include="$(BepInExDir)\core\AssetRipper.Primitives.dll" />
+    <Reference Include="$(BepInExDir)\core\Iced.dll" />
+    <Reference Include="$(BepInExDir)\core\StableNameDotNet.dll" />
+    <Reference Include="$(BepInExDir)\core\WasmDisassembler.dll" />
+    <Reference Include="$(BepInExDir)\core\Disarm.dll" />
+  </ItemGroup>
+</Project>
