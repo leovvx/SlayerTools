@@ -2,7 +2,7 @@
 
 A BepInEx mod for **Idle Slayer** (Steam, PC) that adds a native in-game menu to tinker with your own single-player progress.
 
-> Version **5.0.0** · Target game: **Idle Slayer 7.2.0** (Unity 6, IL2CPP) · Loader: **BepInEx 6.0.0-be.788 IL2CPP x64**
+> Version **5.1.0** · Target game: **Idle Slayer 7.2.0** (Unity 6, IL2CPP) · Loader: **BepInEx 6.0.0-be.788 IL2CPP x64**
 
 ## Features
 
@@ -13,6 +13,7 @@ A BepInEx mod for **Idle Slayer** (Steam, PC) that adds a native in-game menu to
 - Events: boxes, giant, chest hunt key, Bonus Stages, ascension, minions
 - Combat & chests: mimic reveal, god mode, one-hit bosses, auto spheres
 - Dashboard, log, version check, save backups / restore
+- Bag: add any resource with its icon
 
 Open it from the **star tab** in the game menu or the **star button** next to Ascension.
 

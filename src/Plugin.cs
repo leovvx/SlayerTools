@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace SlayerTools
 {
-    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "5.0.0")]
+    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "5.1.0")]
     public class Plugin : BasePlugin
     {
         internal static ManualLogSource L;
@@ -563,6 +563,7 @@ namespace SlayerTools
             NmButton(hg, () => "Quests", "Checklist", () => NmShow("quests"), home);
             NmButton(hg, () => "Enemies killed", "book_11", () => NmShow("enemies"), home);
             NmButton(hg, () => "Presets", "Star Silver", () => NmShow("presets"), home);
+            NmButton(hg, () => "Bag (resources)", "drops_34", () => NmShow("bag"), home);
             NmButton(hg, () => "Log", "book_11", () => NmShow("log"), home);
             NmButton(hg, () => "Settings", "drops_34", () => NmShow("settings"), home);
             NmButton(hg, UndoLabel, "Up Arrow", DoUndo, home);
@@ -651,7 +652,7 @@ namespace SlayerTools
             nmSearch[key] = NmInput(searchRow.transform, "e.g. ruby, chance, damage...");
 
             // info line
-            NmButton(page.transform, () => RecentToast() ?? "Type a value then Enter.  x2 / x10 / Max = shortcuts.  Fav = top of the list.", "news", null, page, false).Let(g => Size(g, 54));
+            NmButton(page.transform, () => RecentToast() ?? "Type a value then Enter.  Max = 100.  Fav = top of the list.", "news", null, page, false).Let(g => Size(g, 54));
 
             // stat list: [name] [value box, Enter = apply] [Unpin]
             var list = NmBox(page.transform, "list", true, 6);
@@ -672,8 +673,6 @@ namespace SlayerTools
                 }
                 else
                 {
-                    NmButton(row.go.transform, () => "x2", "news", () => Quick(key, prop, target, 2, null), page, false).Let(g => Size(g, 46, 64, 0));
-                    NmButton(row.go.transform, () => "x10", "news", () => Quick(key, prop, target, 10, null), page, false).Let(g => Size(g, 46, 72, 0));
                     if (IsChance(prop.Name))
                         NmButton(row.go.transform, () => "Max", "Star", () => Quick(key, prop, target, 1, 100), page, false).Let(g => Size(g, 46, 72, 0));
                     var input = NmInput(row.go.transform, "value");
@@ -1142,6 +1141,7 @@ namespace SlayerTools
             NmTabColors();
             if (key == "quests") NmFillQuests();
             if (key == "presets") NmFillPresets();
+            if (key == "bag") NmFillBag();
             NmRefresh(true);
         }
 
@@ -1188,7 +1188,7 @@ namespace SlayerTools
                     if (nmShopTab == null && nmLeftButton == null && InfoPanel.instance != null && !nmBuildFailed)
                     {
                         nmLabels.Clear(); nmHidden.Clear(); nmPages.Clear(); nmRows.Clear(); nmSearch.Clear(); nmValue.Clear(); nmLastFilter.Clear();
-                        nmPage = null; nmRowInputs.Clear(); nmPresetRows.Clear(); nmEnemyRows.Clear(); nmEnemyLastFilter = null; nmEnemySel = null; nmQuestList = null;
+                        nmPage = null; nmRowInputs.Clear(); nmPresetRows.Clear(); nmEnemyRows.Clear(); nmEnemyLastFilter = null; nmEnemySel = null; nmQuestList = null; ResetBagUi();
                         NmBuild();
                         if (nmShopTab == null && nmLeftButton == null) nmBuildFailed = true;
                     }
@@ -1197,13 +1197,14 @@ namespace SlayerTools
                 foreach (var f in nmSearch.Values) if (f != null && f.isFocused) typing = true;
                 foreach (var f in nmValue.Values) if (f != null && f.isFocused) typing = true;
                 foreach (var r in nmRowInputs) if (r.input != null && r.input.isFocused) { typing = true; break; }
-                if ((nmPresetName != null && nmPresetName.isFocused) || (nmEnemySearch != null && nmEnemySearch.isFocused) || (nmEnemyValue != null && nmEnemyValue.isFocused)) typing = true;
+                if ((nmPresetName != null && nmPresetName.isFocused) || (nmEnemySearch != null && nmEnemySearch.isFocused) || (nmEnemyValue != null && nmEnemyValue.isFocused) || BagTyping()) typing = true;
                 Plugin.Typing = typing;
 
                 if (nmPage != null)
                 {
                     NmFilter(nmPage);
                     if (nmPage == "enemies") NmFilterEnemies();
+                    if (nmPage == "bag") NmFilterBag();
                     if (Time.realtimeSinceStartup >= nmNextRefresh)
                     {
                         nmNextRefresh = Time.realtimeSinceStartup + 0.5f;
@@ -1490,7 +1491,7 @@ namespace SlayerTools
             nextSnapshot = Time.realtimeSinceStartup + 0.25f;
             var inv = PlayerInventory.instance;
             bool inGame = inv != null;
-            var sb = new StringBuilder("{\"ok\":true,\"version\":\"5.0.0\"");
+            var sb = new StringBuilder("{\"ok\":true,\"version\":\"5.1.0\"");
             sb.Append(",\"inGame\":").Append(inGame ? "true" : "false");
             sb.Append(",\"visible\":").Append(overlayVisible ? "true" : "false");
             sb.Append(",\"speed\":").Append(JN(Time.timeScale));

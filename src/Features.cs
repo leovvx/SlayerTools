@@ -231,15 +231,17 @@ namespace SlayerTools
         private void SpawnBox(RandomBox.Type type, string label)
         {
             var err = NotRunner(); if (err != null) { Toast(err); return; }
-            CloseGameMenu();
+            
             MapController.instance.SpawnRandomBox(Vector2.zero, type, true);
-            Toast(label + " incoming!");
+            Toast(label + " incoming! (x" + (++spawnCount) + ")");
         }
+
+        private int spawnCount;
 
         private void SpawnGiantNow()
         {
             var err = NotRunner(); if (err != null) { Toast(err); return; }
-            CloseGameMenu();
+            
             MapController.instance.SpawnGiant(true);
             Toast("A giant is coming!");
         }
@@ -247,7 +249,7 @@ namespace SlayerTools
         private void SpawnKey()
         {
             var err = NotRunner(); if (err != null) { Toast(err); return; }
-            CloseGameMenu();
+            
             MapController.instance.SpawnChestHuntKey(Vector2.zero);
             Toast("Chest hunt key incoming!");
         }
@@ -655,7 +657,7 @@ namespace SlayerTools
         {
             // Events
             var ev = NmNewPage("events");
-            NmButton(ev.transform, () => RecentToast() ?? "Spawn whatever you want during the run.", "news", null, ev, false).Let(g => Size(g, 54));
+            NmButton(ev.transform, () => RecentToast() ?? "Spawn whatever you want during the run (the menu stays open: spam it!).", "news", null, ev, false).Let(g => Size(g, 54));
             var eg = NmGrid(ev.transform, "grid").transform;
             NmButton(eg, () => "< Back", "Up Arrow", () => NmShow("home"), ev);
             NmButton(eg, () => "Purple box", "Star", () => SpawnBox(RandomBox.Type.Special, "Purple box"), ev);
@@ -674,6 +676,8 @@ namespace SlayerTools
             NmButton(eg, () => "Minions: claim all", "Star", MinionsClaim, ev);
             NmButton(eg, () => "Minions: send all", "Up Arrow", MinionsSend, ev);
             NmButton(ev.transform, () => "Next ascension: " + AscensionPreview(), "news", null, ev, false).Let(g => Size(g, 70));
+
+            NmBuildBag();
 
             // Combat and chest hunt
             var cb = NmNewPage("combat");

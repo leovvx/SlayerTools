@@ -2,6 +2,12 @@
 
 All notable changes to Slayer Tools. Every version is tagged `vX.Y.Z`.
 
+## 5.1.0 - 2026-10-20
+
+- New **Bag (resources)** page: every enemy drop with its real icon, +10 / +100 / +1000, exact amount, Full, Fill everything, Exceed the limit.
+- Events: the menu stays open after a spawn so you can spam boxes; a counter shows how many you spawned.
+- Removed the x2 / x10 buttons from the editors (long stat names had no room); Max stays on chance stats.
+
 ## 5.0.0 - 2026-10-04
 
 Big feature release.
