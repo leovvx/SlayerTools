@@ -2,6 +2,11 @@
 
 All notable changes to Slayer Tools. Every version is tagged `vX.Y.Z`.
 
+## 5.2.0 - 2026-10-21
+
+- New **Divinities** page: divinity points (+1 / +10 / +100 or exact total), activate / deactivate any divinity (dark ones included), activate all / deactivate all; missing points are added automatically and deactivating refunds them.
+- Full English documentation in `docs/`.
+
 ## 5.1.1 - 2026-10-20
 
 - Chest hunt: labels are now placed **on** each chest image. A game layout used to push them next to the chest (one chest to the right) and hide them on the second row.

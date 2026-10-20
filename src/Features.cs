@@ -695,6 +695,7 @@ namespace SlayerTools
             NmButton(ev.transform, () => "Next ascension: " + AscensionPreview(), "news", null, ev, false).Let(g => Size(g, 70));
 
             NmBuildBag();
+            NmBuildDivinities();
 
             // Combat and chest hunt
             var cb = NmNewPage("combat");

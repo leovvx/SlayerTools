@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace SlayerTools
 {
-    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "5.1.1")]
+    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "5.2.0")]
     public class Plugin : BasePlugin
     {
         internal static ManualLogSource L;
@@ -564,6 +564,7 @@ namespace SlayerTools
             NmButton(hg, () => "Enemies killed", "book_11", () => NmShow("enemies"), home);
             NmButton(hg, () => "Presets", "Star Silver", () => NmShow("presets"), home);
             NmButton(hg, () => "Bag (resources)", "drops_34", () => NmShow("bag"), home);
+            NmButton(hg, () => "Divinities", "Face", () => NmShow("divin"), home);
             NmButton(hg, () => "Log", "book_11", () => NmShow("log"), home);
             NmButton(hg, () => "Settings", "drops_34", () => NmShow("settings"), home);
             NmButton(hg, UndoLabel, "Up Arrow", DoUndo, home);
@@ -1142,6 +1143,7 @@ namespace SlayerTools
             if (key == "quests") NmFillQuests();
             if (key == "presets") NmFillPresets();
             if (key == "bag") NmFillBag();
+            if (key == "divin") NmFillDivinities();
             NmRefresh(true);
         }
 
@@ -1188,7 +1190,7 @@ namespace SlayerTools
                     if (nmShopTab == null && nmLeftButton == null && InfoPanel.instance != null && !nmBuildFailed)
                     {
                         nmLabels.Clear(); nmHidden.Clear(); nmPages.Clear(); nmRows.Clear(); nmSearch.Clear(); nmValue.Clear(); nmLastFilter.Clear();
-                        nmPage = null; nmRowInputs.Clear(); nmPresetRows.Clear(); nmEnemyRows.Clear(); nmEnemyLastFilter = null; nmEnemySel = null; nmQuestList = null; ResetBagUi();
+                        nmPage = null; nmRowInputs.Clear(); nmPresetRows.Clear(); nmEnemyRows.Clear(); nmEnemyLastFilter = null; nmEnemySel = null; nmQuestList = null; ResetBagUi(); ResetDivUi();
                         NmBuild();
                         if (nmShopTab == null && nmLeftButton == null) nmBuildFailed = true;
                     }
@@ -1197,7 +1199,7 @@ namespace SlayerTools
                 foreach (var f in nmSearch.Values) if (f != null && f.isFocused) typing = true;
                 foreach (var f in nmValue.Values) if (f != null && f.isFocused) typing = true;
                 foreach (var r in nmRowInputs) if (r.input != null && r.input.isFocused) { typing = true; break; }
-                if ((nmPresetName != null && nmPresetName.isFocused) || (nmEnemySearch != null && nmEnemySearch.isFocused) || (nmEnemyValue != null && nmEnemyValue.isFocused) || BagTyping()) typing = true;
+                if ((nmPresetName != null && nmPresetName.isFocused) || (nmEnemySearch != null && nmEnemySearch.isFocused) || (nmEnemyValue != null && nmEnemyValue.isFocused) || BagTyping() || DivTyping()) typing = true;
                 Plugin.Typing = typing;
 
                 if (nmPage != null)
@@ -1491,7 +1493,7 @@ namespace SlayerTools
             nextSnapshot = Time.realtimeSinceStartup + 0.25f;
             var inv = PlayerInventory.instance;
             bool inGame = inv != null;
-            var sb = new StringBuilder("{\"ok\":true,\"version\":\"5.1.1\"");
+            var sb = new StringBuilder("{\"ok\":true,\"version\":\"5.2.0\"");
             sb.Append(",\"inGame\":").Append(inGame ? "true" : "false");
             sb.Append(",\"visible\":").Append(overlayVisible ? "true" : "false");
             sb.Append(",\"speed\":").Append(JN(Time.timeScale));
