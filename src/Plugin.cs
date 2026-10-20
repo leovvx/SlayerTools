@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace SlayerTools
 {
-    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "5.1.0")]
+    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "5.1.1")]
     public class Plugin : BasePlugin
     {
         internal static ManualLogSource L;
@@ -1491,7 +1491,7 @@ namespace SlayerTools
             nextSnapshot = Time.realtimeSinceStartup + 0.25f;
             var inv = PlayerInventory.instance;
             bool inGame = inv != null;
-            var sb = new StringBuilder("{\"ok\":true,\"version\":\"5.1.0\"");
+            var sb = new StringBuilder("{\"ok\":true,\"version\":\"5.1.1\"");
             sb.Append(",\"inGame\":").Append(inGame ? "true" : "false");
             sb.Append(",\"visible\":").Append(overlayVisible ? "true" : "false");
             sb.Append(",\"speed\":").Append(JN(Time.timeScale));

@@ -2,7 +2,7 @@
 
 A BepInEx mod for **Idle Slayer** (Steam, PC) that adds a native in-game menu to tinker with your own single-player progress.
 
-> Version **5.1.0** · Target game: **Idle Slayer 7.2.0** (Unity 6, IL2CPP) · Loader: **BepInEx 6.0.0-be.788 IL2CPP x64**
+> Version **5.1.1** · Target game: **Idle Slayer 7.2.0** (Unity 6, IL2CPP) · Loader: **BepInEx 6.0.0-be.788 IL2CPP x64**
 
 ## Features
 

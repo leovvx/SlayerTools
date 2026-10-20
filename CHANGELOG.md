@@ -2,6 +2,11 @@
 
 All notable changes to Slayer Tools. Every version is tagged `vX.Y.Z`.
 
+## 5.1.1 - 2026-10-20
+
+- Chest hunt: labels are now placed **on** each chest image. A game layout used to push them next to the chest (one chest to the right) and hide them on the second row.
+- "MIMIC" in white on the red chest; shorter labels ("Next x2", "Coins+Souls").
+
 ## 5.1.0 - 2026-10-20
 
 - New **Bag (resources)** page: every enemy drop with its real icon, +10 / +100 / +1000, exact amount, Full, Fill everything, Exceed the limit.

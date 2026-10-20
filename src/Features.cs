@@ -366,7 +366,7 @@ namespace SlayerTools
             col = new Color(1f, 0.85f, 0.3f);
             switch (t)
             {
-                case ChestType.Mimic: col = new Color(1f, 0.2f, 0.2f); return "MIMIC";
+                case ChestType.Mimic: col = Color.white; return "MIMIC";
                 case ChestType.Saver: col = new Color(0.4f, 1f, 0.5f); return "Saver";
                 case ChestType.Multiplier: return "Multi";
                 case ChestType.MultiplierIncreaser: return "Multi +";
@@ -423,18 +423,35 @@ namespace SlayerTools
                         mark.tints.Add((img, img.color));
                         img.color = new Color(1f, 0.35f, 0.35f, img.color.a);
                     }
+                // anchor to the chest image (the largest one), not to the root object
+                // which is arranged by a game layout: otherwise the text ends up next to the chest
+                RectTransform anchor = obj.transform.TryCast<RectTransform>();
+                float best = -1;
+                foreach (var img in obj.GetComponentsInChildren<UnityEngine.UI.Image>(true))
+                {
+                    if (img == null || !img.gameObject.activeInHierarchy) continue;
+                    var r = img.rectTransform.rect; float a = r.width * r.height;
+                    if (a > best) { best = a; anchor = img.rectTransform; }
+                }
                 var go = new GameObject("ST Chest Mark");
                 var rt = go.AddComponent<RectTransform>();
-                go.transform.SetParent(obj.transform, false);
+                go.transform.SetParent(anchor != null ? anchor : obj.transform, false);
                 go.layer = obj.gameObject.layer;
-                rt.anchorMin = new Vector2(0.5f, 1f); rt.anchorMax = new Vector2(0.5f, 1f);
-                rt.pivot = new Vector2(0.5f, 0f); rt.anchoredPosition = new Vector2(0, 4); rt.sizeDelta = new Vector2(160, 36);
+                var le = go.AddComponent<UnityEngine.UI.LayoutElement>();
+                le.ignoreLayout = true;
+                // the text sits on the chest, at its size: it no longer spills onto its neighbours
+                rt.anchorMin = new Vector2(0f, 0f); rt.anchorMax = new Vector2(1f, 1f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.offsetMin = new Vector2(-2f, 0f); rt.offsetMax = new Vector2(2f, 0f);
+                go.transform.SetAsLastSibling();
                 var tmp = go.AddComponent<TMPro.TextMeshProUGUI>();
                 if (obj.revealText != null) { tmp.font = obj.revealText.font; tmp.fontSharedMaterial = obj.revealText.fontSharedMaterial; }
                 tmp.text = text; tmp.color = col; tmp.alignment = TMPro.TextAlignmentOptions.Center;
-                tmp.enableAutoSizing = true; tmp.fontSizeMin = 10; tmp.fontSizeMax = type == ChestType.Mimic ? 28 : 20;
+                tmp.enableWordWrapping = text.Contains(' ');
+                tmp.overflowMode = TMPro.TextOverflowModes.Overflow;
+                tmp.enableAutoSizing = true; tmp.fontSizeMin = 6; tmp.fontSizeMax = type == ChestType.Mimic ? 30 : 22;
                 tmp.raycastTarget = false;
-                tmp.outlineWidth = 0.2f; tmp.outlineColor = new Color32(0, 0, 0, 255);
+                tmp.outlineWidth = 0.3f; tmp.outlineColor = new Color32(0, 0, 0, 255);
                 mark.label = go;
             }
             catch (Exception e) { Plugin.L.LogWarning("Chest mark: " + e.Message); }
