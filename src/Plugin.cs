@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace SlayerTools
 {
-    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "5.2.0")]
+    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "6.0.0")]
     public class Plugin : BasePlugin
     {
         internal static ManualLogSource L;
@@ -34,7 +34,7 @@ namespace SlayerTools
         public override void Load()
         {
             L = Log;
-            KeyMenu   = Config.Bind("Hotkeys", "Overlay", KeyCode.F2, "Show / hide the overlay");
+            KeyMenu   = Config.Bind("Hotkeys", "Menu", KeyCode.F2, "Open / close the Slayer Tools menu (where you left it)");
             KeySpeed  = Config.Bind("Hotkeys", "Speed", KeyCode.F6, "Cycle the game speed");
             KeyCoins  = Config.Bind("Hotkeys", "Coins", KeyCode.F7, "Add coins");
             KeySP     = Config.Bind("Hotkeys", "SlayerPoints", KeyCode.F8, "Add Slayer Points");
@@ -87,7 +87,7 @@ namespace SlayerTools
             ClassInjector.RegisterTypeInIl2Cpp<ToolsBehaviour>();
             AddComponent<ToolsBehaviour>();
             Bridge.Start(Port.Value);
-            Log.LogInfo($"Slayer Tools 5.0 loaded. Overlay on 127.0.0.1:{Port.Value}, F2 to show it.");
+            Log.LogInfo($"Slayer Tools {ToolsBehaviour.ModVersion} loaded. Open it with the star tab, the star button or {KeyMenu.Value}.");
         }
 
         private static void MarkUserQuit() => UserWantsToQuit = true;
@@ -224,7 +224,7 @@ namespace SlayerTools
 
     public partial class ToolsBehaviour : MonoBehaviour
     {
-        public ToolsBehaviour(IntPtr ptr) : base(ptr) { Instance = this; LoadPinned(); LoadOptions(); }
+        public ToolsBehaviour(IntPtr ptr) : base(ptr) { Instance = this; LoadPinned(); LoadOptions(); LoadUi(); }
         internal static ToolsBehaviour Instance;
 
         // ---------- pinned stats (survive recalculations and restarts) ----------
@@ -322,30 +322,10 @@ namespace SlayerTools
 
 
         // ======================================================================
-        // Full native menu: a "Slayer Tools" button in the game menu, with pages
-        // built from the game's real UI elements (buttons, text field).
+        // Helpers shared by the menu pages (the UI itself lives in Ui.cs and Pages.cs)
         // ======================================================================
-        private GameObject nmTemplate, nmInputTemplate, nmGridTemplate;
-        private bool nmBuildFailed;
-        private Transform nmContent;
-        private readonly Dictionary<string, GameObject> nmPages = new Dictionary<string, GameObject>();
-        private readonly List<GameObject> nmHidden = new List<GameObject>();
-        private readonly List<(TMPro.TextMeshProUGUI txt, Func<string> label, GameObject page)> nmLabels = new List<(TMPro.TextMeshProUGUI, Func<string>, GameObject)>();
-        private string nmPage;
-        private bool nmBroken;
-        private float nmNextCheck, nmNextRefresh;
-        private Dictionary<string, Sprite> nmSprites;
         private bool freezeBoost;
-
-        // stat editor
-        private class NmRow { public GameObject go; public EditableProp prop; public string source; }
-        private readonly Dictionary<string, List<NmRow>> nmRows = new Dictionary<string, List<NmRow>>();
-        private readonly Dictionary<string, TMPro.TMP_InputField> nmSearch = new Dictionary<string, TMPro.TMP_InputField>();
-        private readonly Dictionary<string, TMPro.TMP_InputField> nmValue = new Dictionary<string, TMPro.TMP_InputField>();
-        private readonly Dictionary<string, EditableProp> nmSelected = new Dictionary<string, EditableProp>();
-        private readonly Dictionary<string, string> nmLastFilter = new Dictionary<string, string>();
         private List<EditableProp> boostProps;
-        private readonly List<(TMPro.TMP_InputField input, EditableProp prop, string key, Func<object> target)> nmRowInputs = new List<(TMPro.TMP_InputField, EditableProp, string, Func<object>)>();
 
         private static string EditText(EditableProp p, object target)
         {
@@ -362,346 +342,50 @@ namespace SlayerTools
         // unpin = give the stat back to the game, then ask it to recalculate everything
         private void Unpin(string name)
         {
-            if (!pinned.Remove(name)) return;
+            if (!pinned.TryGetValue(name, out var old)) return;
+            pinned.Remove(name);
             SavePinned();
-            try { PlayerInventory.instance?.CalculateValues(); } catch (Exception e) { Plugin.L.LogWarning("Recalculation: " + e.Message); }
-            Toast(name + " unpinned: value recalculated by the game");
+            Recalculate();
+            PushUndo("unpin " + Pretty(name), () =>
+            {
+                var p = FindInv(name); var inv = PlayerInventory.instance;
+                if (p != null && inv != null) try { Write(p, inv, old); } catch { }
+                pinned[name] = old; SavePinned();
+            });
+            Toast(Pretty(name) + " unpinned: the game recalculated it");
+        }
+
+        // Asks the game to recalculate every stat, without ever letting Slayer Points go down.
+        // A recalculation can lower them by a rounding hair; the cloud sync then sees the cloud save as
+        // "better", downloads it and reloads the game every few seconds (sending the player back to the menu).
+        private void Recalculate()
+        {
+            var inv = PlayerInventory.instance; if (inv == null) return;
+            double sp = SlayerPoints.points, life = SlayerPoints.lifetime;
+            try { inv.CalculateValues(); } catch (Exception e) { Plugin.L.LogWarning("Recalculation: " + e.Message); }
+            try
+            {
+                if (SlayerPoints.points < sp) SlayerPoints.points = sp;
+                if (SlayerPoints.lifetime < life) SlayerPoints.lifetime = life;
+            }
+            catch { }
         }
 
         private void UnpinAll()
         {
             int c = pinned.Count;
+            if (c == 0) { Toast("Nothing to unpin"); return; }
+            var old = new Dictionary<string, double>(pinned);
+            PushUndo("unpin all", () =>
+            {
+                var inv = PlayerInventory.instance;
+                foreach (var kv in old) { var p = FindInv(kv.Key); if (p != null && inv != null) try { Write(p, inv, kv.Value); } catch { } pinned[kv.Key] = kv.Value; }
+                SavePinned();
+            });
             pinned.Clear();
             SavePinned();
-            try { PlayerInventory.instance?.CalculateValues(); } catch (Exception e) { Plugin.L.LogWarning("Recalculation: " + e.Message); }
+            Recalculate();
             Toast(c + " stat(s) unpinned and recalculated");
-        }
-
-        private Sprite NmSprite(string name)
-        {
-            if (nmSprites == null)
-            {
-                nmSprites = new Dictionary<string, Sprite>();
-                foreach (var sp in Resources.FindObjectsOfTypeAll<Sprite>())
-                    if (sp != null && !nmSprites.ContainsKey(sp.name)) nmSprites[sp.name] = sp;
-            }
-            return nmSprites.TryGetValue(name, out var s) ? s : null;
-        }
-
-        private static void Strip(GameObject go)
-        {
-            foreach (var st in go.GetComponentsInChildren<StartingText>(true)) UnityEngine.Object.DestroyImmediate(st);
-            foreach (var t in go.GetComponentsInChildren<Transform>(true))
-                if (t != null && t.name == "Alert Icon") t.gameObject.SetActive(false);
-            var b = go.GetComponent<UnityEngine.UI.Button>();
-            if (b != null) b.onClick = new UnityEngine.UI.Button.ButtonClickedEvent();
-        }
-
-        // --- building blocks ---
-        private GameObject NmBox(Transform parent, string name, bool vertical, float spacing = 10, float height = -1)
-        {
-            var go = new GameObject(name);
-            go.AddComponent<RectTransform>();
-            go.transform.SetParent(parent, false);
-            go.layer = parent.gameObject.layer;
-            if (vertical)
-            {
-                var v = go.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
-                v.spacing = spacing; v.childControlWidth = true; v.childControlHeight = true;
-                v.childForceExpandWidth = true; v.childForceExpandHeight = false;
-                var f = go.AddComponent<UnityEngine.UI.ContentSizeFitter>();
-                f.verticalFit = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
-            }
-            else
-            {
-                var h = go.AddComponent<UnityEngine.UI.HorizontalLayoutGroup>();
-                h.spacing = spacing; h.childControlWidth = true; h.childControlHeight = true;
-                h.childForceExpandWidth = false; h.childForceExpandHeight = true;
-            }
-            if (height > 0)
-            {
-                var le = go.AddComponent<UnityEngine.UI.LayoutElement>();
-                le.minHeight = height; le.preferredHeight = height;
-            }
-            return go;
-        }
-
-        private static void Size(GameObject go, float height, float width = -1, float flex = -1)
-        {
-            var le = go.GetComponent<UnityEngine.UI.LayoutElement>() ?? go.AddComponent<UnityEngine.UI.LayoutElement>();
-            if (height > 0) { le.minHeight = height; le.preferredHeight = height; }
-            if (width > 0) { le.minWidth = width; le.preferredWidth = width; }
-            if (flex >= 0) le.flexibleWidth = flex;
-        }
-
-        private GameObject NmButton(Transform parent, Func<string> label, string sprite, Action onClick, GameObject page, bool icon = true)
-        {
-            var go = UnityEngine.Object.Instantiate(nmTemplate, parent, false);
-            go.name = "ST Button";
-            go.SetActive(true);
-            Strip(go);
-            var txt = go.GetComponentInChildren<TMPro.TextMeshProUGUI>(true);
-            if (txt != null)
-            {
-                txt.enableAutoSizing = true; txt.fontSizeMin = 9; txt.fontSizeMax = 19;
-                txt.text = label();
-                nmLabels.Add((txt, label, page));
-            }
-            var iconT = go.transform.Find("Background/Content/Image");
-            if (iconT != null)
-            {
-                if (!icon) iconT.gameObject.SetActive(false);
-                else { var sp = NmSprite(sprite); var img = iconT.GetComponent<UnityEngine.UI.Image>(); if (sp != null && img != null) img.sprite = sp; }
-            }
-            if (!icon)
-            {
-                var bgT = go.transform.Find("Background")?.GetComponent<RectTransform>();
-                if (bgT != null) { bgT.anchorMin = Vector2.zero; bgT.anchorMax = Vector2.one; bgT.offsetMin = new Vector2(-3, -1.5f); bgT.offsetMax = new Vector2(3, 3.5f); }
-                var ctT = go.transform.Find("Background/Content")?.GetComponent<RectTransform>();
-                if (ctT != null) { ctT.anchorMin = Vector2.zero; ctT.anchorMax = Vector2.one; ctT.offsetMin = new Vector2(8, 6); ctT.offsetMax = new Vector2(-8, -4); }
-                if (txt != null) { var r = txt.rectTransform; r.anchorMin = Vector2.zero; r.anchorMax = Vector2.one; r.offsetMin = Vector2.zero; r.offsetMax = Vector2.zero; }
-            }
-            var btn = go.GetComponent<UnityEngine.UI.Button>();
-            if (onClick != null) btn.onClick.AddListener((Action)(() =>
-            {
-                try { onClick(); NmRefresh(true); } catch (Exception e) { Toast("Error: " + e.GetBaseException().Message); }
-            }));
-            return go;
-        }
-
-        private TMPro.TMP_InputField NmInput(Transform parent, string placeholder)
-        {
-            var go = UnityEngine.Object.Instantiate(nmInputTemplate, parent, false);
-            go.name = "ST Input";
-            go.SetActive(true);
-            foreach (var st in go.GetComponentsInChildren<StartingText>(true)) UnityEngine.Object.DestroyImmediate(st);
-            var input = go.GetComponent<TMPro.TMP_InputField>();
-            input.onEndEdit = new TMPro.TMP_InputField.SubmitEvent();
-            input.onSubmit = new TMPro.TMP_InputField.SubmitEvent();
-            input.onValueChanged = new TMPro.TMP_InputField.OnChangeEvent();
-            input.onSelect = new TMPro.TMP_InputField.SelectionEvent();
-            input.onDeselect = new TMPro.TMP_InputField.SelectionEvent();
-            input.characterLimit = 64;
-            input.contentType = TMPro.TMP_InputField.ContentType.Standard;
-            input.lineType = TMPro.TMP_InputField.LineType.SingleLine;
-            input.interactable = true;
-            input.text = "";
-            var img = go.GetComponent<UnityEngine.UI.Image>() ?? go.AddComponent<UnityEngine.UI.Image>();
-            var sp = NmSprite("Single Button Square") ?? NmSprite("Single Button");
-            if (sp != null) { img.sprite = sp; img.type = UnityEngine.UI.Image.Type.Sliced; }
-            img.color = new Color(0.75f, 0.75f, 0.8f, 1f);
-            input.targetGraphic = img;
-            if (input.textComponent != null)
-            {
-                input.textComponent.text = "";
-                input.textComponent.enableAutoSizing = true; input.textComponent.fontSizeMin = 10; input.textComponent.fontSizeMax = 20;
-                input.textComponent.alignment = TMPro.TextAlignmentOptions.Center;
-                if (input.placeholder == null)
-                {
-                    var ph = UnityEngine.Object.Instantiate(input.textComponent.gameObject, input.textComponent.transform.parent, false);
-                    ph.name = "Placeholder";
-                    var pt = ph.GetComponent<TMPro.TextMeshProUGUI>();
-                    pt.text = placeholder; pt.color = new Color(1, 1, 1, 0.45f);
-                    input.placeholder = pt;
-                }
-            }
-            var area = go.transform.Find("Text Area") as RectTransform ?? go.transform.Find("Text Area")?.GetComponent<RectTransform>();
-            if (area != null) { area.anchorMin = Vector2.zero; area.anchorMax = Vector2.one; area.offsetMin = new Vector2(10, 4); area.offsetMax = new Vector2(-10, -4); }
-            foreach (var t in go.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true))
-            { var r = t.rectTransform; r.anchorMin = Vector2.zero; r.anchorMax = Vector2.one; r.offsetMin = Vector2.zero; r.offsetMax = Vector2.zero; }
-            Size(go, 50, -1, 1);
-            return input;
-        }
-
-        private GameObject NmGrid(Transform parent, string name)
-        {
-            var g = UnityEngine.Object.Instantiate(nmGridTemplate, parent, false);
-            g.name = name;
-            for (int i = g.transform.childCount - 1; i >= 0; i--)
-                UnityEngine.Object.DestroyImmediate(g.transform.GetChild(i).gameObject);
-            g.SetActive(true);
-            return g;
-        }
-
-        private GameObject NmNewPage(string key)
-        {
-            var page = NmBox(nmContent, "Slayer Tools " + key, true, 12);
-            page.SetActive(false);
-            nmPages[key] = page;
-            return page;
-        }
-
-        // --- page construction ---
-        private void NmBuild()
-        {
-            var info = InfoPanel.instance;
-            if (info == null) return;
-            nmContent = info.transform;
-            var buttons = nmContent.Find("Buttons");
-            if (buttons == null) return;
-            var news = buttons.Find("News") ?? buttons.Find("Upgrades");
-            if (news == null) return;
-            nmGridTemplate = buttons.gameObject;
-            nmTemplate = news.gameObject;
-            foreach (var f in Resources.FindObjectsOfTypeAll<TMPro.TMP_InputField>())
-                if (f != null && f.gameObject.hideFlags == HideFlags.None && f.textComponent != null) { nmInputTemplate = f.gameObject; break; }
-
-            NmBuildEntryPoints();
-
-            // ---------- Home ----------
-            var home = NmNewPage("home");
-            NmButton(home.transform, () => StatsLine(), "Star", null, home, false).Let(g => Size(g, 90));
-            var hg = NmGrid(home.transform, "grid").transform;
-            NmButton(hg, () => "< Back to game", "Up Arrow", NmClose, home);
-            NmButton(hg, () => "Actions", "Star", () => NmShow("actions"), home);
-            NmButton(hg, () => "Events", "Star Silver", () => NmShow("events"), home);
-            NmButton(hg, () => "Combat & chests", "Face", () => NmShow("combat"), home);
-            NmButton(hg, () => "Dashboard", "news", () => NmShow("dash"), home);
-            NmButton(hg, () => "Inventory", "Checklist", () => NmShow("inv"), home);
-            NmButton(hg, () => "Slayer Points", "Face", () => NmShow("sp"), home);
-            NmButton(hg, () => "Boost", "Up Arrow", () => NmShow("boost"), home);
-            NmButton(hg, () => "Quests", "Checklist", () => NmShow("quests"), home);
-            NmButton(hg, () => "Enemies killed", "book_11", () => NmShow("enemies"), home);
-            NmButton(hg, () => "Presets", "Star Silver", () => NmShow("presets"), home);
-            NmButton(hg, () => "Bag (resources)", "drops_34", () => NmShow("bag"), home);
-            NmButton(hg, () => "Divinities", "Face", () => NmShow("divin"), home);
-            NmButton(hg, () => "Log", "book_11", () => NmShow("log"), home);
-            NmButton(hg, () => "Settings", "drops_34", () => NmShow("settings"), home);
-            NmButton(hg, UndoLabel, "Up Arrow", DoUndo, home);
-
-            // ---------- Actions ----------
-            var act = NmNewPage("actions");
-            NmButton(act.transform, () => StatsLine(), "Star", null, act, false).Let(g => Size(g, 90));
-            var ag = NmGrid(act.transform, "grid").transform;
-            NmButton(ag, () => "< Back", "Up Arrow", () => NmShow("home"), act);
-            NmButton(ag, UndoLabel, "Up Arrow", DoUndo, act);
-            NmButton(ag, () => "+1 hour of coins", "Star", () => AddCoins(1), act);
-            NmButton(ag, () => "+1 day of coins", "Star", () => AddCoins(24), act);
-            NmButton(ag, () => "+1 week of coins", "Star Silver", () => AddCoins(168), act);
-            NmButton(ag, () => "Coins x2", "Star", () => Run("{\"cmd\":\"coinsx2\"}"), act);
-            NmButton(ag, () => "Coins locked: " + OnOff(lockCoins), "drops_34", () =>
-            {
-                lockCoins = !lockCoins;
-                if (PlayerInventory.instance != null) lockedCoins = PlayerInventory.instance.coins;
-            }, act);
-            NmButton(ag, () => "Slayer Points +10%", "Face", () => AddSP(10), act);
-            NmButton(ag, () => "Slayer Points +50%", "Face", () => AddSP(50), act);
-            NmButton(ag, () => "Slayer Points x2", "Face", () => AddSP(100), act);
-            NmButton(ag, () => "Portal ready" + CdText(PortalButton.instance?.currentCd), "Checklist", () => ResetPortal(), act);
-            NmButton(ag, () => "Rage Mode ready" + CdText(RageModeManager.instance?.currentCd), "Checklist", () => ResetRage(), act);
-            NmButton(ag, () => "Portal always ready: " + OnOff(freezePortal), "drops_34", () => freezePortal = !freezePortal, act);
-            NmButton(ag, () => "Rage always ready: " + OnOff(freezeRage), "drops_34", () => freezeRage = !freezeRage, act);
-            NmButton(ag, () => "Game speed x" + Time.timeScale.ToString("0.#", CultureInfo.InvariantCulture), "news", () =>
-            {
-                float[] steps = { 1, 2, 5, 10, 20 };
-                int i = Array.FindIndex(steps, x => Mathf.Approximately(x, Time.timeScale));
-                SetSpeed(steps[(i + 1) % steps.Length]);
-            }, act);
-            NmButton(ag, () => "Normal speed (x1)", "news", () => SetSpeed(1), act);
-
-            // ---------- Editors ----------
-            NmBuildEditor("inv", "Inventory", () => (invProps ??= Collect(typeof(PlayerInventory), false)), () => PlayerInventory.instance);
-            NmBuildEditor("sp", "Slayer Points", () => (spProps ??= Collect(typeof(SlayerPoints), true)), () => null);
-            NmBuildEditor("boost", "Boost", BoostProps, () => PlayerInventory.instance?.boost, page =>
-            {
-                var bg = NmGrid(page.transform, "grid").transform;
-                NmButton(bg, () => "Boost ready" + CdText(PlayerInventory.instance?.boost?.currentCd), "Up Arrow", () => ResetBoost(), page);
-                NmButton(bg, () => "Boost always ready: " + OnOff(freezeBoost), "drops_34", () => freezeBoost = !freezeBoost, page);
-            });
-
-            // ---------- Settings ----------
-            var set = NmNewPage("settings");
-            NmButton(set.transform, () => RecentToast() ?? "Slayer Tools settings", "news", null, set, false).Let(g => Size(g, 54));
-            var sg = NmGrid(set.transform, "grid").transform;
-            NmButton(sg, () => "< Back", "Up Arrow", () => NmShow("home"), set);
-            NmButton(sg, () => "Pinned stats: " + pinned.Count, "Checklist", null, set);
-            NmButton(sg, () => "Unpin all", "drops_34", UnpinAll, set);
-            NmButton(sg, () => "Analyze the UI", "book_11", () => Toast("UI analyzed: " + DumpUI()), set);
-            NmButton(sg, UndoLabel, "Up Arrow", DoUndo, set);
-            NmBuildSaveSettings(sg, set);
-            NmButton(set.transform, () =>
-                "Edited stats are pinned: the game no longer overwrites them\n" +
-                "(achievements, purchases, rage...), even after a restart.\n" +
-                "Keys: F6 speed  F7 coins  F8 SP  F9 portal  F10 rage  F11 analyze",
-                "news", null, set, false).Let(g => Size(g, 110));
-
-            NmBuildFeaturePages();
-            NmBuildPresets();
-            NmBuildQuests();
-            NmBuildEnemies();
-            Plugin.L.LogInfo("Full native menu added to the game menu.");
-        }
-
-        private void NmBuildEditor(string key, string title, Func<List<EditableProp>> props, Func<object> target, Action<GameObject> extra = null)
-        {
-            var page = NmNewPage(key);
-            var top = NmGrid(page.transform, "grid").transform;
-            NmButton(top, () => "< Back", "Up Arrow", () => NmShow("home"), page);
-            NmButton(top, () => title, "Checklist", null, page);
-            NmButton(top, UndoLabel, "Up Arrow", DoUndo, page);
-            extra?.Invoke(page);
-
-            if (nmInputTemplate == null)
-            {
-                NmButton(page.transform, () => "No text field found in the game: use the overlay to edit values.", "news", null, page, false).Let(g => Size(g, 70));
-                return;
-            }
-
-            // search
-            var searchRow = NmBox(page.transform, "search", false, 10, 54);
-            NmButton(searchRow.transform, () => "Search", "news", null, page, false).Let(g => Size(g, 54, 150, 0));
-            nmSearch[key] = NmInput(searchRow.transform, "e.g. ruby, chance, damage...");
-
-            // info line
-            NmButton(page.transform, () => RecentToast() ?? "Type a value then Enter.  Max = 100.  Fav = top of the list.", "news", null, page, false).Let(g => Size(g, 54));
-
-            // stat list: [name] [value box, Enter = apply] [Unpin]
-            var list = NmBox(page.transform, "list", true, 6);
-            var rows = new List<NmRow>();
-            foreach (var p in props())
-            {
-                var prop = p;
-                var row = new NmRow { prop = prop, source = key };
-                row.go = NmBox(list.transform, "row " + prop.Name, false, 8, 46);
-                NmButton(row.go.transform, () => (IsFav(key, prop.Name) ? "<color=#FFD24A>></color> " : "") + (key == "inv" && pinned.ContainsKey(prop.Name) ? "* " : "") + Pretty(prop.Name), "news", null, page, false).Let(g => Size(g, 46, -1, 1));
-                if (prop.ReadOnly)
-                {
-                    NmButton(row.go.transform, () => ValueText(prop, target()) + "  (locked)", "news", null, page, false).Let(g => Size(g, 46, 250, 0));
-                }
-                else if (prop.Prop.PropertyType == typeof(bool))
-                {
-                    NmButton(row.go.transform, () => ValueText(prop, target()) == "yes" ? "YES" : "no", "drops_34", () => Toast(ApplyTo(key, prop, target(), null)), page, false).Let(g => Size(g, 46, 250, 0));
-                }
-                else
-                {
-                    if (IsChance(prop.Name))
-                        NmButton(row.go.transform, () => "Max", "Star", () => Quick(key, prop, target, 1, 100), page, false).Let(g => Size(g, 46, 72, 0));
-                    var input = NmInput(row.go.transform, "value");
-                    Size(input.gameObject, 46, 210, 0);
-                    input.text = EditText(prop, target());
-                    input.onSubmit.AddListener((Action<string>)(txt =>
-                    {
-                        try
-                        {
-                            if (txt == EditText(prop, target())) return;   // nothing changed
-                            Toast(ApplyTo(key, prop, target(), txt));
-                            input.text = EditText(prop, target());
-                            NmRefresh(true);
-                        }
-                        catch (Exception e) { Toast("Error: " + e.GetBaseException().Message); }
-                    }));
-                    nmRowInputs.Add((input, prop, key, target));
-                }
-                if (key == "inv")
-                    NmButton(row.go.transform, () => pinned.ContainsKey(prop.Name) ? "Unpin" : "-", "drops_34", () =>
-                    {
-                        if (pinned.ContainsKey(prop.Name)) Unpin(prop.Name);
-                    }, page, false).Let(g => Size(g, 46, 120, 0));
-                NmButton(row.go.transform, () => IsFav(key, prop.Name) ? "<color=#FFD24A>FAV</color>" : "fav", "news", () => ToggleFav(key, prop.Name), page, false).Let(g => Size(g, 46, 76, 0));
-                rows.Add(row);
-            }
-            nmRows[key] = rows;
-            SortRows(key);
         }
 
 
@@ -709,9 +393,6 @@ namespace SlayerTools
         // ---------- Presets: save / apply sets of pinned stats ----------
         private static string PresetFile => Path.Combine(Paths.ConfigPath, "leo.idleslayer.slayertools.presets.json");
         private Dictionary<string, Dictionary<string, double>> presets;
-        private TMPro.TMP_InputField nmPresetName;
-        private GameObject nmPresetList;
-        private readonly List<GameObject> nmPresetRows = new List<GameObject>();
 
         private Dictionary<string, Dictionary<string, double>> Presets()
         {
@@ -770,56 +451,6 @@ namespace SlayerTools
             Toast($"Preset \"{name}\" applied ({n} stats)");
         }
 
-        private void NmBuildPresets()
-        {
-            var page = NmNewPage("presets");
-            var top = NmGrid(page.transform, "grid").transform;
-            NmButton(top, () => "< Back", "Up Arrow", () => NmShow("home"), page);
-            NmButton(top, () => "Delete all presets", "drops_34", () =>
-            {
-                int c = Presets().Count; Presets().Clear(); SavePresets(); NmFillPresets();
-                Toast(c + " preset(s) deleted");
-            }, page);
-            NmButton(page.transform, () => RecentToast() ?? $"A preset saves your {pinned.Count} currently pinned stat(s).", "news", null, page, false).Let(g => Size(g, 54));
-            if (nmInputTemplate != null)
-            {
-                var row = NmBox(page.transform, "save", false, 10, 54);
-                nmPresetName = NmInput(row.transform, "preset name (Enter to save)");
-                nmPresetName.onSubmit.AddListener((Action<string>)(txt => { SavePreset(txt); nmPresetName.text = ""; }));
-                NmButton(row.transform, () => "Save", "Star", () => { SavePreset(nmPresetName.text); nmPresetName.text = ""; }, page, false).Let(g => Size(g, 54, 150, 0));
-            }
-            nmPresetList = NmBox(page.transform, "list", true, 6);
-        }
-
-        private void NmFillPresets()
-        {
-            if (nmPresetList == null) return;
-            foreach (var go in nmPresetRows) if (go != null) UnityEngine.Object.DestroyImmediate(go);
-            nmPresetRows.Clear();
-            nmLabels.RemoveAll(l => l.txt == null);
-            var page = nmPages["presets"];
-            if (Presets().Count == 0)
-            {
-                nmPresetRows.Add(NmButton(nmPresetList.transform, () => "No presets yet.", "news", null, page, false).Let(g => Size(g, 46)));
-                return;
-            }
-            foreach (var kv in Presets().OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase))
-            {
-                string name = kv.Key; int count = kv.Value.Count;
-                var row = NmBox(nmPresetList.transform, "preset " + name, false, 8, 46);
-                NmButton(row.transform, () => $"{name}  ({count} stats)", "news", null, page, false).Let(g => Size(g, 46, -1, 1));
-                NmButton(row.transform, () => "Apply", "Star", () => ApplyPreset(name), page, false).Let(g => Size(g, 46, 160, 0));
-                NmButton(row.transform, () => "Delete", "drops_34", () =>
-                {
-                    Presets().Remove(name); SavePresets(); Toast($"Preset \"{name}\" deleted"); NmFillPresets();
-                }, page, false).Let(g => Size(g, 46, 160, 0));
-                nmPresetRows.Add(row);
-            }
-        }
-
-        // ---------- Quests: complete them in one click (the game's ForceComplete) ----------
-        private GameObject nmQuestList;
-
         private IEnumerable<(Quest q, string kind)> AllQuests()
         {
             var inv = PlayerInventory.instance;
@@ -846,222 +477,9 @@ namespace SlayerTools
             return $"[{kind}] {QName(q)}  :  {q.questCurrentGoal:N0}/{q.questGoal:N0}" + (done ? "   (to claim)" : "   > Complete");
         }
 
-        private void NmBuildQuests()
-        {
-            var page = NmNewPage("quests");
-            var top = NmGrid(page.transform, "grid").transform;
-            NmButton(top, () => "< Back", "Up Arrow", () => NmShow("home"), page);
-            NmButton(top, () => "Complete all quests", "Star", () =>
-            {
-                int n = 0;
-                foreach (var (q, _) in AllQuests().ToList())
-                    if (QOpen(q) && !q.IsCompleted()) { q.ForceComplete(false); n++; }
-                Toast(n + " quest(s) completed: go claim them in the game");
-                NmFillQuests();
-            }, page);
-            NmButton(page.transform, () => RecentToast() ?? "Click a quest to complete it, then claim the reward in the game.", "news", null, page, false).Let(g => Size(g, 54));
-            nmQuestList = NmBox(page.transform, "list", true, 6);
-        }
-
-        private void NmFillQuests()
-        {
-            if (nmQuestList == null) return;
-            for (int i = nmQuestList.transform.childCount - 1; i >= 0; i--)
-                UnityEngine.Object.DestroyImmediate(nmQuestList.transform.GetChild(i).gameObject);
-            nmLabels.RemoveAll(l => l.txt == null);
-            var page = nmPages["quests"];
-            int count = 0;
-            foreach (var (q, kind) in AllQuests().ToList())
-            {
-                if (!QOpen(q)) continue;
-                var quest = q; var k = kind;
-                var row = NmButton(nmQuestList.transform, () => QLabel(quest, k), "news", () =>
-                {
-                    if (quest.IsCompleted()) { Toast("Already completed: claim it in the game"); return; }
-                    quest.ForceComplete(false);
-                    Toast(QName(quest) + " completed!");
-                }, page, false);
-                Size(row, 44);
-                count++;
-            }
-            if (count == 0)
-                NmButton(nmQuestList.transform, () => "No active quests.", "news", null, page, false).Let(g => Size(g, 44));
-        }
-
-        // ---------- Enemies: kill counter (achievements like "Kill 500 Black Demons") ----------
-        private Enemy nmEnemySel;
-        private TMPro.TMP_InputField nmEnemyValue, nmEnemySearch;
-        private readonly List<(GameObject go, Enemy e)> nmEnemyRows = new List<(GameObject, Enemy)>();
-        private string nmEnemyLastFilter;
 
         private static string EName(Enemy e) => (!string.IsNullOrEmpty(e.localizedPluralName) ? e.localizedPluralName : !string.IsNullOrEmpty(e.localizedName) ? e.localizedName : e.name) ?? "?";
 
-        private void NmBuildEnemies()
-        {
-            var page = NmNewPage("enemies");
-            var top = NmGrid(page.transform, "grid").transform;
-            NmButton(top, () => "< Back", "Up Arrow", () => NmShow("home"), page);
-            NmButton(top, () => "Enemies killed", "book_11", null, page);
-            NmButton(page.transform, () => RecentToast() ?? (nmEnemySel == null
-                ? "Pick an enemy, type a kill count, then Apply."
-                : EName(nmEnemySel) + " : " + nmEnemySel.killCount.ToString("N0") + " kills"), "news", null, page, false).Let(g => Size(g, 54));
-            if (nmInputTemplate == null) return;
-            var searchRow = NmBox(page.transform, "search", false, 10, 54);
-            NmButton(searchRow.transform, () => "Search", "news", null, page, false).Let(g => Size(g, 54, 150, 0));
-            nmEnemySearch = NmInput(searchRow.transform, "e.g. goblin, demon...");
-            var editRow = NmBox(page.transform, "edit", false, 10, 54);
-            nmEnemyValue = NmInput(editRow.transform, "kill count (e.g. 5000)");
-            NmButton(editRow.transform, () => "Apply", "Star", () =>
-            {
-                if (nmEnemySel == null) { Toast("Pick an enemy first"); return; }
-                if (!TryParseNumber(nmEnemyValue.text, out double d)) { Toast("Invalid number"); return; }
-                var en0 = nmEnemySel; double old0 = en0.killCount;
-                PushUndo(EName(en0) + " kills", () => en0.killCount = old0);
-                nmEnemySel.killCount = Math.Max(0, d);
-                nmEnemyValue.text = "";
-                Toast(EName(nmEnemySel) + " : " + d.ToString("N0") + " kills (the achievement unlocks on the next kill)");
-            }, page, false).Let(g => Size(g, 54, 150, 0));
-
-            var list = NmBox(page.transform, "list", true, 6);
-            var inv = PlayerInventory.instance;
-            if (inv?.enemies == null) return;
-            foreach (var e in inv.enemies)
-            {
-                if (e == null) continue;
-                var en = e;
-                var row = NmButton(list.transform, () => (nmEnemySel == en ? ">  " : "") + EName(en) + "  :  " + en.killCount.ToString("N0") + " kills", "news", () =>
-                {
-                    nmEnemySel = en; nmEnemyValue.text = ""; nmEnemyValue.ActivateInputField();
-                }, page, false);
-                Size(row, 44);
-                nmEnemyRows.Add((row, en));
-            }
-        }
-
-        private void NmFilterEnemies()
-        {
-            if (nmEnemySearch == null) return;
-            string q = (nmEnemySearch.text ?? "").Trim();
-            if (q == nmEnemyLastFilter) return;
-            nmEnemyLastFilter = q;
-            foreach (var (go, e) in nmEnemyRows)
-                if (go != null) go.SetActive(q.Length == 0 || EName(e).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 || (e.name ?? "").IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0);
-        }
-
-
-        // ---------- entry points: a tab in the menu bar + a button at the top left ----------
-        private GameObject nmShopTab, nmLeftButton;
-        private UnityEngine.UI.Image nmShopTabImage;
-        private bool nmOpening;
-        internal static ToolsBehaviour Self => Instance;
-
-        private static GameObject FindGo(string path)
-        {
-            foreach (var t in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (t == null || t.gameObject.hideFlags != HideFlags.None) continue;
-                if (t.name != path.Substring(path.LastIndexOf('/') + 1)) continue;
-                // check the parent path
-                var parts = path.Split('/');
-                var cur = t; bool ok = true;
-                for (int i = parts.Length - 1; i >= 0 && ok; i--)
-                {
-                    if (cur == null || cur.name != parts[i]) ok = false;
-                    cur = cur?.parent;
-                }
-                if (ok) return t.gameObject;
-            }
-            return null;
-        }
-
-        private void OpenFromOutside()
-        {
-            try
-            {
-                var ui = UIManager.instance;
-                if (ui != null && !ui.ShopVisible()) ui.ToggleShop(true, true);
-                nmOpening = true;
-                ShopManager.instance?.OpenInfoPanel();
-            }
-            finally { nmOpening = false; }
-            NmShow("home");
-        }
-
-        private void NmBuildEntryPoints()
-        {
-            // 1) tab in the bottom bar of the menu (between Info and Close)
-            var bar = FindGo("Shop Panel/Wrapper/Buttons");
-            var infoTab = bar?.transform.Find("Info");
-            if (infoTab != null)
-            {
-                nmShopTab = UnityEngine.Object.Instantiate(infoTab.gameObject, bar.transform, false);
-                nmShopTab.name = "Slayer Tools Tab";
-                Strip(nmShopTab);
-                var ov = nmShopTab.transform.Find("Notification Overlay"); if (ov != null) ov.gameObject.SetActive(false);
-                var icon = nmShopTab.transform.Find("Image")?.GetComponent<UnityEngine.UI.Image>();
-                var sp = NmSprite("Star"); if (icon != null && sp != null) icon.sprite = sp;
-                nmShopTabImage = nmShopTab.GetComponent<UnityEngine.UI.Image>();
-                nmShopTab.transform.SetSiblingIndex(infoTab.GetSiblingIndex() + 1);
-                nmShopTab.GetComponent<UnityEngine.UI.Button>().onClick.AddListener((Action)(() =>
-                {
-                    try { nmOpening = true; ShopManager.instance?.OpenInfoPanel(); } finally { nmOpening = false; }
-                    NmShow("home");
-                }));
-            }
-            else Plugin.L.LogWarning("Menu tab bar not found.");
-
-            // 2) round button at the top left, next to Ascension and the Bag
-            var asc = FindGo("Left Buttons/Ascension Button");
-            if (asc != null)
-            {
-                nmLeftButton = UnityEngine.Object.Instantiate(asc, asc.transform.parent, false);
-                nmLeftButton.name = "Slayer Tools Button";
-                Strip(nmLeftButton);
-                var ov = nmLeftButton.transform.Find("Notification Overlay"); if (ov != null) ov.gameObject.SetActive(false);
-                var icon = nmLeftButton.transform.Find("Image")?.GetComponent<UnityEngine.UI.Image>();
-                var sp = NmSprite("Star"); if (icon != null && sp != null) icon.sprite = sp;
-                nmLeftButton.GetComponent<UnityEngine.UI.Button>().onClick.AddListener((Action)(() =>
-                {
-                    try { if (nmPage != null && UIManager.instance != null && UIManager.instance.ShopVisible()) { NmClose(); UIManager.instance.ToggleShop(false, true); } else OpenFromOutside(); }
-                    catch (Exception e) { Toast("Error: " + e.GetBaseException().Message); }
-                }));
-            }
-            else Plugin.L.LogWarning("Ascension button not found.");
-        }
-
-        // called by the game patches: another tab or closing the menu closes our pages
-        internal void OnGameMenuChanged()
-        {
-            if (nmOpening || nmPage == null) return;
-            NmClose();
-        }
-
-        // tab color: copy the "selected" look of the Info tab onto ours
-        private Color? nmTabOn, nmTabOff;
-        private void NmTabColors()
-        {
-            var sm = ShopManager.instance;
-            if (sm == null || nmShopTabImage == null || sm.infoPanelTabImage == null || sm.powersTabImage == null) return;
-            if (nmPage != null)
-            {
-                nmTabOn ??= sm.infoPanelTabImage.color;
-                nmTabOff ??= sm.powersTabImage.color;
-                nmShopTabImage.color = nmTabOn.Value;
-                sm.infoPanelTabImage.color = nmTabOff.Value;
-            }
-            else if (nmTabOff != null) nmShopTabImage.color = nmTabOff.Value;
-        }
-
-        // --- display helpers ---
-        private string StatsLine()
-        {
-            var inv = PlayerInventory.instance;
-            if (inv == null) return "Waiting for the game...";
-            var t = RecentToast();
-            if (t != null) return t;
-            var line = $"Coins {Fmt(inv.coins)}   ·   CpS {Fmt(inv.coinsPerSecond)}\nSlayer Points {Fmt(SlayerPoints.points)}   ·   Souls {Fmt(SlayerPoints.soulsLeft)}";
-            return VersionWarning != null ? "<color=#FF8A5A>" + VersionWarning + "</color>\n" + line : line;
-        }
 
         private static string CdText(double? cd) => cd == null ? "" : cd.Value <= 0.05 ? "  (ready)" : $"  ({cd.Value:0} s)";
 
@@ -1074,13 +492,6 @@ namespace SlayerTools
                 return o is bool b ? (b ? "yes" : "no") : Fmt(Convert.ToDouble(o));
             }
             catch { return "?"; }
-        }
-
-        private string RowText(string key, EditableProp p, object target)
-        {
-            string mark = key == "inv" && pinned.ContainsKey(p.Name) ? "* " : "";
-            string sel = nmSelected.TryGetValue(key, out var s) && s == p ? ">  " : "";
-            return sel + mark + p.Name + "  :  " + ValueText(p, target) + (p.ReadOnly ? "   (locked)" : "");
         }
 
         private List<EditableProp> BoostProps()
@@ -1118,110 +529,6 @@ namespace SlayerTools
             if (b == null) return Toast("Boost not found");
             if (b.currentCd > 0) b.currentCd = 0.0001f;   // the game moves it to 0 and notifies the UI
             return Toast("Boost ready!");
-        }
-
-        private static string OnOff(bool b) => b ? "YES" : "no";
-
-        // --- navigation ---
-        private void NmShow(string key)
-        {
-            if (nmContent == null) return;
-            if (nmPage == null)
-            {
-                nmHidden.Clear();
-                for (int i = 0; i < nmContent.childCount; i++)
-                {
-                    var c = nmContent.GetChild(i).gameObject;
-                    if (!c.activeSelf || nmPages.ContainsValue(c)) continue;
-                    c.SetActive(false);
-                    nmHidden.Add(c);
-                }
-            }
-            foreach (var kv in nmPages) kv.Value.SetActive(kv.Key == key);
-            nmPage = key;
-            NmTabColors();
-            if (key == "quests") NmFillQuests();
-            if (key == "presets") NmFillPresets();
-            if (key == "bag") NmFillBag();
-            if (key == "divin") NmFillDivinities();
-            NmRefresh(true);
-        }
-
-        private void NmClose()
-        {
-            if (nmTabOff != null && nmShopTabImage != null) nmShopTabImage.color = nmTabOff.Value;
-            foreach (var kv in nmPages) if (kv.Value != null) kv.Value.SetActive(false);
-            foreach (var c in nmHidden) if (c != null) c.SetActive(true);
-            nmHidden.Clear();
-            nmPage = null;
-        }
-
-        private void NmFilter(string key)
-        {
-            if (!nmRows.TryGetValue(key, out var rows) || !nmSearch.TryGetValue(key, out var input) || input == null) return;
-            string q = (input.text ?? "").Trim();
-            if (nmLastFilter.TryGetValue(key, out var last) && last == q) return;
-            nmLastFilter[key] = q;
-            foreach (var r in rows)
-                r.go.SetActive(q.Length == 0 || Matches(r.prop.Name, q));
-        }
-
-        private void NmRefresh(bool force = false)
-        {
-            if (nmPage == null || !nmPages.TryGetValue(nmPage, out var current)) return;
-            foreach (var (input, prop, key, target) in nmRowInputs)
-                if (input != null && key == nmPage && !input.isFocused && input.gameObject.activeInHierarchy)
-                    try { var t = EditText(prop, target()); if (input.text != t) input.text = t; } catch { }
-            foreach (var (txt, label, page) in nmLabels)
-                if (txt != null && (page == null || page == current) && txt.gameObject.activeInHierarchy)
-                    try { txt.text = label(); } catch { }
-        }
-
-        private void NmUpdate()
-        {
-            if (nmBroken) return;
-            try
-            {
-                if (freezeBoost) { var b = PlayerInventory.instance?.boost; if (b != null && b.currentCd > 0.0001f) b.currentCd = 0.0001f; }
-
-                if (Time.realtimeSinceStartup >= nmNextCheck)
-                {
-                    nmNextCheck = Time.realtimeSinceStartup + 2f;
-                    if (nmShopTab == null && nmLeftButton == null && InfoPanel.instance != null && !nmBuildFailed)
-                    {
-                        nmLabels.Clear(); nmHidden.Clear(); nmPages.Clear(); nmRows.Clear(); nmSearch.Clear(); nmValue.Clear(); nmLastFilter.Clear();
-                        nmPage = null; nmRowInputs.Clear(); nmPresetRows.Clear(); nmEnemyRows.Clear(); nmEnemyLastFilter = null; nmEnemySel = null; nmQuestList = null; ResetBagUi(); ResetDivUi();
-                        NmBuild();
-                        if (nmShopTab == null && nmLeftButton == null) nmBuildFailed = true;
-                    }
-                }
-                bool typing = false;
-                foreach (var f in nmSearch.Values) if (f != null && f.isFocused) typing = true;
-                foreach (var f in nmValue.Values) if (f != null && f.isFocused) typing = true;
-                foreach (var r in nmRowInputs) if (r.input != null && r.input.isFocused) { typing = true; break; }
-                if ((nmPresetName != null && nmPresetName.isFocused) || (nmEnemySearch != null && nmEnemySearch.isFocused) || (nmEnemyValue != null && nmEnemyValue.isFocused) || BagTyping() || DivTyping()) typing = true;
-                Plugin.Typing = typing;
-
-                if (nmPage != null)
-                {
-                    NmFilter(nmPage);
-                    if (nmPage == "enemies") NmFilterEnemies();
-                    if (nmPage == "bag") NmFilterBag();
-                    if (Time.realtimeSinceStartup >= nmNextRefresh)
-                    {
-                        nmNextRefresh = Time.realtimeSinceStartup + 0.5f;
-                        NmRefresh();
-                        if (!nmPages[nmPage].activeInHierarchy) NmClose();
-                        NmTabColors();   // the player closed the game menu
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                nmBroken = true;
-                Plugin.L.LogError("Native menu disabled: " + e);
-                try { NmClose(); } catch { }
-            }
         }
 
         private EditableProp FindInv(string name) => (invProps ??= Collect(typeof(PlayerInventory), false)).FirstOrDefault(x => x.Name == name);
@@ -1493,7 +800,7 @@ namespace SlayerTools
             nextSnapshot = Time.realtimeSinceStartup + 0.25f;
             var inv = PlayerInventory.instance;
             bool inGame = inv != null;
-            var sb = new StringBuilder("{\"ok\":true,\"version\":\"5.2.0\"");
+            var sb = new StringBuilder("{\"ok\":true,\"version\":\"6.0.0\"");
             sb.Append(",\"inGame\":").Append(inGame ? "true" : "false");
             sb.Append(",\"visible\":").Append(overlayVisible ? "true" : "false");
             sb.Append(",\"speed\":").Append(JN(Time.timeScale));
@@ -1528,7 +835,7 @@ namespace SlayerTools
             // On load: ask the game to recalculate, our patch then puts the computed stats back
             // (without touching counters such as coins, already loaded from the save).
             if (!appliedOnLoad && PlayerInventory.instance != null && pinned.Count > 0)
-            { appliedOnLoad = true; try { PlayerInventory.instance.CalculateValues(); } catch (Exception e) { Plugin.L.LogWarning("Initial recalculation: " + e.Message); } }
+            { appliedOnLoad = true; Recalculate(); }
             for (int i = 0; i < 20 && Bridge.Commands.TryDequeue(out var p); i++)
                 p.Done.TrySetResult(Run(p.Body));
 
@@ -1548,7 +855,7 @@ namespace SlayerTools
             if (inputBroken) return;
             try
             {
-                if (Input.GetKeyDown(Plugin.KeyMenu.Value)) { overlayVisible = !overlayVisible; BuildSnapshot(true); }
+                MenuHotkeys();
                 if (Input.GetKeyDown(Plugin.KeySpeed.Value)) CycleSpeed();
                 if (Input.GetKeyDown(Plugin.KeyCoins.Value)) AddCoins(Plugin.CoinsHours.Value);
                 if (Input.GetKeyDown(Plugin.KeySP.Value)) AddSP(Plugin.SPPercent.Value);

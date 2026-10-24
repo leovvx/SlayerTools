@@ -17,7 +17,7 @@ namespace SlayerTools
     // ======================================================================
     public partial class ToolsBehaviour
     {
-        internal const string ExpectedGameVersion = "7.2.0";
+        internal const string ExpectedGameVersion = "7.3.6";
 
         // ---------------- options (saved in the config) ----------------
         internal static bool GodMode, OneShotBoss, AutoSpheres, RevealMimics = true, RevealAll, FriendlyNames = true;
@@ -26,8 +26,19 @@ namespace SlayerTools
         private class UndoEntry { public string Label; public Action Undo; }
         private readonly List<UndoEntry> undo = new List<UndoEntry>();
 
+        // several changes made by one click (e.g. "Activate all") become a single undo step
+        private List<Action> undoBatch;
+        private void BeginUndoBatch() => undoBatch = new List<Action>();
+        private void EndUndoBatch(string label)
+        {
+            var batch = undoBatch; undoBatch = null;
+            if (batch == null || batch.Count == 0) return;
+            PushUndo(label, () => { for (int i = batch.Count - 1; i >= 0; i--) try { batch[i](); } catch { } });
+        }
+
         private void PushUndo(string label, Action action)
         {
+            if (undoBatch != null) { undoBatch.Add(action); return; }
             undo.Add(new UndoEntry { Label = label, Undo = action });
             if (undo.Count > 10) undo.RemoveAt(0);
         }
@@ -98,19 +109,11 @@ namespace SlayerTools
             string id = key + ":" + name;
             if (!Favs().Remove(id)) Favs().Add(id);
             try { File.WriteAllText(FavFile, JsonSerializer.Serialize(Favs())); } catch { }
-            SortRows(key);
+            if (nmLists.TryGetValue(key, out var l)) Rebind(l);
             Toast((Favs().Contains(id) ? "Favorite added: " : "Favorite removed: ") + Pretty(name));
         }
 
         private bool IsFav(string key, string name) => Favs().Contains(key + ":" + name);
-
-        // move favorites to the top of the list
-        private void SortRows(string key)
-        {
-            if (!nmRows.TryGetValue(key, out var rows) || rows.Count == 0) return;
-            var ordered = rows.Where(r => IsFav(key, r.prop.Name)).Concat(rows.Where(r => !IsFav(key, r.prop.Name))).ToList();
-            for (int i = 0; i < ordered.Count; i++) if (ordered[i].go != null) ordered[i].go.transform.SetSiblingIndex(i);
-        }
 
         // ---------------- 3) Friendly names ----------------
         private static readonly Dictionary<string, string> DisplayNames = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -223,15 +226,14 @@ namespace SlayerTools
             return null;
         }
 
-        private void CloseGameMenu()
+        private static bool IsRunnerNow()
         {
-            try { NmClose(); var ui = UIManager.instance; if (ui != null && ui.ShopVisible()) ui.ToggleShop(false, true); } catch { }
+            try { return MapController.instance != null && GameState.IsRunner(); } catch { return false; }
         }
 
         private void SpawnBox(RandomBox.Type type, string label)
         {
             var err = NotRunner(); if (err != null) { Toast(err); return; }
-            
             MapController.instance.SpawnRandomBox(Vector2.zero, type, true);
             Toast(label + " incoming! (x" + (++spawnCount) + ")");
         }
@@ -241,7 +243,6 @@ namespace SlayerTools
         private void SpawnGiantNow()
         {
             var err = NotRunner(); if (err != null) { Toast(err); return; }
-            
             MapController.instance.SpawnGiant(true);
             Toast("A giant is coming!");
         }
@@ -249,23 +250,9 @@ namespace SlayerTools
         private void SpawnKey()
         {
             var err = NotRunner(); if (err != null) { Toast(err); return; }
-            
             MapController.instance.SpawnChestHuntKey(Vector2.zero);
             Toast("Chest hunt key incoming!");
         }
-
-        // ---------------- 7) Ascension ----------------
-        private string confirmKey; private float confirmUntil;
-
-        private bool Confirm(string key)
-        {
-            if (confirmKey == key && Time.realtimeSinceStartup < confirmUntil) { confirmKey = null; return true; }
-            confirmKey = key; confirmUntil = Time.realtimeSinceStartup + 5f;
-            Toast("Click once more to confirm (5 s)");
-            return false;
-        }
-
-        private string ConfirmText(string key, string label) => confirmKey == key && Time.realtimeSinceStartup < confirmUntil ? "CONFIRM: " + label + " ?" : label;
 
         private void DoAscend(bool ultra)
         {
@@ -669,82 +656,6 @@ namespace SlayerTools
             catch (Exception e) { Plugin.L.LogError("Restore failed: " + e.Message); }
         }
 
-        // ---------------- menu pages ----------------
-        private void NmBuildFeaturePages()
-        {
-            // Events
-            var ev = NmNewPage("events");
-            NmButton(ev.transform, () => RecentToast() ?? "Spawn whatever you want during the run (the menu stays open: spam it!).", "news", null, ev, false).Let(g => Size(g, 54));
-            var eg = NmGrid(ev.transform, "grid").transform;
-            NmButton(eg, () => "< Back", "Up Arrow", () => NmShow("home"), ev);
-            NmButton(eg, () => "Purple box", "Star", () => SpawnBox(RandomBox.Type.Special, "Purple box"), ev);
-            NmButton(eg, () => "Silver box", "Star Silver", () => SpawnBox(RandomBox.Type.Silver, "Silver box"), ev);
-            NmButton(eg, () => "Golden box", "Star", () => SpawnBox(RandomBox.Type.Gold, "Golden box"), ev);
-            NmButton(eg, () => "Normal box", "Star Silver", () => SpawnBox(RandomBox.Type.Normal, "Box"), ev);
-            NmButton(eg, () => "Giant", "Face", SpawnGiantNow, ev);
-            NmButton(eg, () => "Chest hunt key", "Checklist", SpawnKey, ev);
-            NmButton(eg, () => "Bonus Stage (yours)", "Up Arrow", () => LaunchBonus(() => MapController.instance.CurrentBonusMap(), "Bonus Stage"), ev);
-            NmButton(eg, () => "Bonus Stage 1", "Up Arrow", () => LaunchBonus(() => Maps.list.BonusStage, "Bonus Stage 1"), ev);
-            NmButton(eg, () => "Bonus Stage 2", "Up Arrow", () => LaunchBonus(() => Maps.list.BonusStage2, "Bonus Stage 2"), ev);
-            NmButton(eg, () => "Bonus Stage 3", "Up Arrow", () => LaunchBonus(() => Maps.list.BonusStage3, "Bonus Stage 3"), ev);
-            NmButton(eg, () => ConfirmText("asc", "Ascension"), "Face", () => DoAscend(false), ev);
-            NmButton(eg, () => ConfirmText("ultra", "Ultra ascension"), "Face", () => DoAscend(true), ev);
-            NmButton(eg, () => "Minions: finish missions", "Checklist", MinionsFinish, ev);
-            NmButton(eg, () => "Minions: claim all", "Star", MinionsClaim, ev);
-            NmButton(eg, () => "Minions: send all", "Up Arrow", MinionsSend, ev);
-            NmButton(ev.transform, () => "Next ascension: " + AscensionPreview(), "news", null, ev, false).Let(g => Size(g, 70));
-
-            NmBuildBag();
-            NmBuildDivinities();
-
-            // Combat and chest hunt
-            var cb = NmNewPage("combat");
-            NmButton(cb.transform, () => RecentToast() ?? ChestStatus(), "news", null, cb, false).Let(g => Size(g, 54));
-            var cg = NmGrid(cb.transform, "grid").transform;
-            NmButton(cg, () => "< Back", "Up Arrow", () => NmShow("home"), cb);
-            NmButton(cg, () => "Show mimics: " + OnOff(RevealMimics), "Face", () => { RevealMimics = !RevealMimics; ClearChestMarks(); SaveOptions(); }, cb);
-            NmButton(cg, () => "Show all chests: " + OnOff(RevealAll), "Checklist", () => { RevealAll = !RevealAll; ClearChestMarks(); SaveOptions(); }, cb);
-            NmButton(cg, () => "God mode (bosses): " + OnOff(GodMode), "Star", () => { GodMode = !GodMode; SaveOptions(); }, cb);
-            NmButton(cg, () => "One-hit bosses: " + OnOff(OneShotBoss), "Star", () => { OneShotBoss = !OneShotBoss; SaveOptions(); }, cb);
-            NmButton(cg, () => "Auto bonus spheres: " + OnOff(AutoSpheres), "Up Arrow", () => { AutoSpheres = !AutoSpheres; SaveOptions(); }, cb);
-            NmButton(cb.transform, () =>
-                "Chest hunt: mimics are shown in red with MIMIC above them.\n" +
-                "God mode: you no longer lose lives against bosses (nor on Bonus Stage saws).\n" +
-                "Auto bonus spheres: spheres come to you by themselves in the Bonus Stage.",
-                "news", null, cb, false).Let(g => Size(g, 110));
-
-            // Dashboard
-            var db = NmNewPage("dash");
-            var dg = NmGrid(db.transform, "grid").transform;
-            NmButton(dg, () => "< Back", "Up Arrow", () => NmShow("home"), db);
-            NmButton(dg, () => "Reset the measurement", "drops_34", () => { ResetRates(); sessionStart = Time.realtimeSinceStartup; Toast("Measurement reset"); }, db);
-            NmButton(db.transform, DashText, "news", null, db, false).Let(g => Size(g, 300));
-
-            // Log
-            var jr = NmNewPage("log");
-            var jg = NmGrid(jr.transform, "grid").transform;
-            NmButton(jg, () => "< Back", "Up Arrow", () => NmShow("home"), jr);
-            NmButton(jg, () => "Clear the log", "drops_34", () => { journal.Clear(); }, jr);
-            NmButton(jr.transform, () => "Everything is also written to BepInEx\\slayer_log.txt", "news", null, jr, false).Let(g => Size(g, 46));
-            NmButton(jr.transform, JournalText, "news", null, jr, false).Let(g => Size(g, 520));
-        }
-
-        private void NmBuildSaveSettings(Transform grid, GameObject page)
-        {
-            NmButton(grid, () => "Copy the save now", "Checklist", () =>
-            {
-                var d = BackupSave("manual", true);
-                Toast(d != null ? "Save copied: " + Path.GetFileName(d) : "Copy failed (see the log file)");
-            }, page);
-            NmButton(grid, () => "Previous / next backup", "Up Arrow", () =>
-            {
-                var b = Backups(); if (b.Count == 0) return;
-                restoreIndex = (restoreIndex + 1) % b.Count;
-            }, page);
-            NmButton(grid, RestoreLabel, "drops_34", RestoreClick, page);
-            NmButton(grid, () => "Names: " + (FriendlyNames ? "friendly" : "code"), "book_11", () => { FriendlyNames = !FriendlyNames; SaveOptions(); }, page);
-        }
-
         // ---------------- persistent options ----------------
         private static string OptFile => Path.Combine(Paths.ConfigPath, "leo.idleslayer.slayertools.options.json");
 
@@ -757,7 +668,7 @@ namespace SlayerTools
                 if (d == null) return;
                 bool g(string k, bool def) => d.TryGetValue(k, out var v) ? v : def;
                 GodMode = g("GodMode", false); OneShotBoss = g("OneShotBoss", false); AutoSpheres = g("AutoSpheres", false);
-                RevealMimics = g("RevealMimics", true); RevealAll = g("RevealAll", false); FriendlyNames = g("FriendlyNames", true);
+                RevealMimics = g("RevealMimics", true); RevealAll = g("RevealAll", false); FriendlyNames = g("FriendlyNames", true); BagOverLimit = g("BagOverLimit", false);
             }
             catch { }
         }
@@ -769,7 +680,7 @@ namespace SlayerTools
                 File.WriteAllText(OptFile, JsonSerializer.Serialize(new Dictionary<string, bool>
                 {
                     ["GodMode"] = GodMode, ["OneShotBoss"] = OneShotBoss, ["AutoSpheres"] = AutoSpheres,
-                    ["RevealMimics"] = RevealMimics, ["RevealAll"] = RevealAll, ["FriendlyNames"] = FriendlyNames,
+                    ["RevealMimics"] = RevealMimics, ["RevealAll"] = RevealAll, ["FriendlyNames"] = FriendlyNames, ["BagOverLimit"] = BagOverLimit,
                 }));
             }
             catch { }

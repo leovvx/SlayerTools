@@ -2,7 +2,7 @@
 
 A BepInEx mod for **Idle Slayer** (Steam, PC) that adds a native in-game menu to tinker with your own single-player progress: stats, resources, divinities, events, chest hunts, bosses…
 
-> Current version: **5.2.0** · Target game: **Idle Slayer 7.2.0** (Unity 6, IL2CPP) · Loader: **BepInEx 6.0.0-be.788 IL2CPP x64**
+> Current version: **6.0.0** · Target game: **Idle Slayer 7.3.6** (Unity 6, IL2CPP) · Loader: **BepInEx 6.0.0-be.788 IL2CPP x64**
 
 ---
 
@@ -11,6 +11,7 @@ A BepInEx mod for **Idle Slayer** (Steam, PC) that adds a native in-game menu to
 | Document | Content |
 |---|---|
 | [docs/USAGE.md](docs/USAGE.md) | Player guide: every menu page, hotkeys, save backups |
+| [docs/UX_REVIEW.md](docs/UX_REVIEW.md) | Full UI / UX review: use cases, findings, v6 design decisions, test checklist |
 | [docs/BUILDING.md](docs/BUILDING.md) | Install the SDK, build, install the DLL, debug |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the code is organised and how the native menu is built |
 | [docs/GAME_INTERNALS.md](docs/GAME_INTERNALS.md) | What we know about the game's code: classes, fields, pitfalls (anti-mod, save file…) |
@@ -24,14 +25,17 @@ A BepInEx mod for **Idle Slayer** (Steam, PC) that adds a native in-game menu to
 ```
 SlayerTools-en/
 ├─ src/                    the plugin (C#)
-│  ├─ Plugin.cs            startup, Harmony patches, native menu, editors, presets, quests, enemies
+│  ├─ Plugin.cs            startup, Harmony patches, stat editing, actions, bridge
+│  ├─ Ui.cs                menu framework: layout blocks, navigation, memory, paged lists
+│  ├─ Pages.cs             every menu page
 │  ├─ Features.cs          undo, favorites, friendly names, events, god mode, mimics, dashboard, log, backups
-│  ├─ Bag.cs               Bag (resources) page
-│  ├─ Divinities.cs        Divinities page
+│  ├─ Bag.cs               resource logic
+│  ├─ Divinities.cs        divinity logic
 │  └─ SlayerTools.csproj
 ├─ tools/
 │  ├─ finder/              GameAssembly.dll disassembler (who calls what)
 │  ├─ dumper/              lists classes / properties / enums of the interop assemblies
+│  ├─ interopscan/         finds Unity calls that would crash through Il2CppInterop
 │  └─ retarget/            legacy tool: rewrites .NET 8 references to .NET 6
 ├─ scripts/
 │  └─ publish-releases.ps1 creates the GitHub releases from the tags
@@ -52,7 +56,7 @@ cd $env:USERPROFILE\Downloads\SlayerTools-en
 .\build.ps1
 ```
 
-Then start Idle Slayer, open the game menu and click the **star tab** (or the star button at the top left).
+Then start Idle Slayer and press **F2** (or click the **star tab** in the game menu, or the star button at the top left). The menu reopens where you left it.
 
 ## How it works
 

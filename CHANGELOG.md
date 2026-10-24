@@ -2,6 +2,29 @@
 
 All notable changes to Slayer Tools. Every version is tagged `vX.Y.Z`.
 
+## 6.0.0 - 2026-10-24
+
+Complete redesign of the in-game menu after a full UI / UX review ([docs/UX_REVIEW.md](docs/UX_REVIEW.md)).
+
+- **Remembers where you were**: reopens on the last page, restores the scroll position, searches, filters and list pages, even after a restart (option to always open on Home).
+- **Same layout on every page**: Back (real history) · breadcrumb title · Home, a status bar with coloured messages (green / orange / red) or the page hint, and **Undo on every page**.
+- **New Home**: live summary, **Active effects** with *All off*, global search, recent pages, tiles grouped in Play / Edit / Tools with live badges.
+- **Search everything**: stats, resources, divinities, enemies and pages; a result opens its page already filtered.
+- **Paged, filterable lists** for Inventory, Slayer Points, Boost, Bag, Divinities, Quests, Enemies and Presets (favorites, pinned, found, active, daily…), built on a pool of reused rows (faster to open).
+- **Greyed-out buttons** when an action cannot work (spawns outside the run, nothing to undo / unpin…).
+- **ON / OFF switches** with a one-line description for every option.
+- **Consistent confirmations** for dangerous actions (second click, orange label), with a setting to turn them off.
+- **More undo**: unpin, unpin all, divinity deactivation and preset deletion can be undone; batch actions (Activate all, Fill everything) are a single undo step.
+- Bag: step selector (1 → 1M) for both − and +, filters, dimmed icons for resources not found yet. Divinities: +1000, filters, Deactivate all with confirm. Enemies: inline kill-count box. Quests: filters and "Complete all (n)".
+- **F2** opens / closes the menu from anywhere (replaces the old overlay key); the **mouse back button** goes back.
+- "What's new" page shown once after each update.
+- Quests: **Buy all upgrades** (unlocks new quests) and **Complete + claim all**. Home: **Unpin all and recalculate** at the bottom.
+- Actions: **Buy max equipment**: buys the item with the most affordable levels to max first, then the next one with the coins left, and so on.
+- Recalculations triggered by the mod never lower Slayer Points (a rounding drop made the cloud sync reload the game every few seconds).
+- Built and checked against the Idle Slayer **7.3.6** interop; a page that fails to build is skipped (and its Home tile greyed out) instead of disabling the whole menu.
+- The menu rebuilds itself when the game reloads its scene (e.g. after downloading the cloud save) instead of switching off.
+- New `tools/interopscan` to find Unity calls that crash through Il2CppInterop.
+
 ## 5.2.0 - 2026-10-21
 
 - New **Divinities** page: divinity points (+1 / +10 / +100 or exact total), activate / deactivate any divinity (dark ones included), activate all / deactivate all; missing points are added automatically and deactivating refunds them.

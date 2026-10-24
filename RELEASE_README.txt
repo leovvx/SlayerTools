@@ -6,7 +6,8 @@ INSTALL
   2. Copy SlayerTools.dll into:
      C:\Program Files (x86)\Steam\steamapps\common\Idle Slayer\BepInEx\plugins\
      (replace the old one if there is one).
-  3. Start the game, open the game menu and click the star tab (or the star button at the top left).
+  3. Start the game and press F2 (or open the game menu and click the star tab,
+     or the star button at the top left). The menu reopens where you left it.
 
 UNINSTALL
   Delete BepInEx\plugins\SlayerTools.dll. The game files are never modified.
