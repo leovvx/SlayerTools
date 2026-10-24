@@ -117,6 +117,9 @@ Everything the mod did, newest first. Also written to `BepInEx\slayer_log.txt`.
 | Hotkeys | the current keys (read from the config) |
 | Advanced | Analyze the game UI (F11), What's new, version line |
 
+## Updates
+On startup the mod checks the latest release on GitHub (`leovvx/SlayerTools`). When a newer version exists, Home shows **Update x.y.z available** with an **Install** button. Installing downloads the release zip, checks its SHA-256 against the release notes, and swaps the DLL; the new version runs from the **next launch**. Settings > Updates: turn the check off, see the status, *Check now*.
+
 ## Save backups
 A copy of `savedata.sav` (and `backup.sav`) is made automatically:
 - at the start of every session,
@@ -150,7 +153,7 @@ Configurable in `BepInEx\config\leo.idleslayer.slayertools.cfg`.
 | File | Purpose |
 |---|---|
 | `BepInEx\config\leo.idleslayer.slayertools.cfg` | hotkeys and settings |
-| `…slayertools.ui.json` | menu memory (last page, scroll, searches, filters, settings) |
+| `…slayertools.ui.json` | menu memory (last page, scroll, searches, filters, settings, update check) |
 | `…slayertools.pinned.json` | pinned stats |
 | `…slayertools.presets.json` | presets |
 | `…slayertools.favorites.json` | favorites |

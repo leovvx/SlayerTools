@@ -19,4 +19,7 @@ Compress-Archive -Path src\bin\Release\net6.0\SlayerTools.dll, RELEASE_README.tx
    ```powershell
    .\scripts\publish-releases.ps1 -ZipDir "$env:USERPROFILE\Downloads\SlayerTools-en-releases"
    ```
-   The script runs `gh release create <tag> <zip> --notes-from-tag` for every tag that does not have a release yet.
+   For every tag without a release, the script runs `gh release create` with the zip and notes = tag message + `SHA256: <hash of the zip>`.
+
+## Self-update
+Since 6.1.0 the mod reads `releases/latest` of `leovvx/SlayerTools` and offers to install a newer version. It only accepts a `.zip` asset served from this repository's releases, whose SHA-256 matches the `SHA256:` line of the notes — so always publish with the script (or add that line by hand). The repository must stay public.

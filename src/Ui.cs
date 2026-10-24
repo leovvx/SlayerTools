@@ -35,11 +35,12 @@ namespace SlayerTools
         public bool ConfirmDanger { get; set; } = true;
         public int BagStep { get; set; } = 2;
         public string SeenVersion { get; set; } = "";
+        public bool CheckUpdates { get; set; } = true;
     }
 
     public partial class ToolsBehaviour
     {
-        internal const string ModVersion = "6.0.0";
+        internal const string ModVersion = "6.1.0";
 
         // ---------------- templates and containers ----------------
         private GameObject nmTemplate, nmInputTemplate, nmGridTemplate;

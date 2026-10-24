@@ -2,7 +2,7 @@
 
 A BepInEx mod for **Idle Slayer** (Steam, PC) that adds a native in-game menu to tinker with your own single-player progress: stats, resources, divinities, events, chest hunts, bosses…
 
-> Current version: **6.0.0** · Target game: **Idle Slayer 7.3.6** (Unity 6, IL2CPP) · Loader: **BepInEx 6.0.0-be.788 IL2CPP x64**
+> Current version: **6.1.0** · Target game: **Idle Slayer 7.3.6** (Unity 6, IL2CPP) · Loader: **BepInEx 6.0.0-be.788 IL2CPP x64**
 
 ---
 
@@ -28,6 +28,7 @@ SlayerTools-en/
 │  ├─ Plugin.cs            startup, Harmony patches, stat editing, actions, bridge
 │  ├─ Ui.cs                menu framework: layout blocks, navigation, memory, paged lists
 │  ├─ Pages.cs             every menu page
+│  ├─ Updater.cs           self-update from GitHub releases
 │  ├─ Features.cs          undo, favorites, friendly names, events, god mode, mimics, dashboard, log, backups
 │  ├─ Bag.cs               resource logic
 │  ├─ Divinities.cs        divinity logic

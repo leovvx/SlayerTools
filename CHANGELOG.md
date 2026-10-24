@@ -2,6 +2,13 @@
 
 All notable changes to Slayer Tools. Every version is tagged `vX.Y.Z`.
 
+## 6.1.0 - 2026-10-24
+
+- **Self-update**: on startup the mod checks the latest GitHub release of `leovvx/SlayerTools` in the background. A newer version shows up on Home (and in Settings > Updates) with an **Install** button. Nothing is installed without a click.
+- The download must come from this repository's releases over HTTPS and match the SHA-256 written in the release notes; the new DLL replaces the old one (renamed `SlayerTools.dll.old`, deleted on the next start) and is used from the next launch.
+- Settings > Updates: "Check for updates" switch, status, Check now, Install.
+- `publish-releases.ps1` adds the zip's SHA-256 to the release notes.
+
 ## 6.0.0 - 2026-10-24
 
 Complete redesign of the in-game menu after a full UI / UX review ([docs/UX_REVIEW.md](docs/UX_REVIEW.md)).

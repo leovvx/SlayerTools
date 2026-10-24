@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace SlayerTools
 {
-    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "6.0.0")]
+    [BepInPlugin("leo.idleslayer.slayertools", "Slayer Tools", "6.1.0")]
     public class Plugin : BasePlugin
     {
         internal static ManualLogSource L;
@@ -46,6 +46,7 @@ namespace SlayerTools
             Port       = Config.Bind("Overlay", "Port", 47823, "Local port (127.0.0.1) used by the overlay");
 
             ToolsBehaviour.ApplyPendingRestore();
+            ToolsBehaviour.CleanupOldDll();
 
             try
             {
@@ -800,7 +801,7 @@ namespace SlayerTools
             nextSnapshot = Time.realtimeSinceStartup + 0.25f;
             var inv = PlayerInventory.instance;
             bool inGame = inv != null;
-            var sb = new StringBuilder("{\"ok\":true,\"version\":\"6.0.0\"");
+            var sb = new StringBuilder("{\"ok\":true,\"version\":\"6.1.0\"");
             sb.Append(",\"inGame\":").Append(inGame ? "true" : "false");
             sb.Append(",\"visible\":").Append(overlayVisible ? "true" : "false");
             sb.Append(",\"speed\":").Append(JN(Time.timeScale));

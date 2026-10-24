@@ -162,6 +162,12 @@ namespace SlayerTools
             var page = NmPage("home", "Pick a page or search everything. F2 opens this menu anywhere.");
             NmText(page.transform, SummaryText, page, 0, 15);
 
+            var upd = NmBox(page.transform, "update", false, 6, 46);
+            NmText(upd.transform, UpdateLine, page, 46, 13).Let(g => Size(g, 46, -1, 1));
+            NmButton(upd.transform, () => "Install", InstallUpdate, page, 46, 110, 0)
+                .Let(g => ShowWhen(g, () => Upd == UpdateState.Available, page));
+            ShowWhen(upd, () => Upd == UpdateState.Available || Upd == UpdateState.Downloading || Upd == UpdateState.Installed, page);
+
             var act = NmBox(page.transform, "active", false, 6, 40);
             NmText(act.transform, () => Col(CGreen, "Active: ") + string.Join("  ·  ", ActiveEffects()), page, 40, 13).Let(g => Size(g, 40, -1, 1));
             NmButton(act.transform, () => "All off", AllEffectsOff, page, 40, 96, 0);
@@ -894,6 +900,15 @@ namespace SlayerTools
                 Toast("Searches, filters, scroll positions and recent pages forgotten");
             }, page);
 
+            NmSection(page.transform, "Updates", page);
+            NmToggle(page.transform, "Check for updates", "on startup, from github.com/" + UpdateRepo + " (installing always needs a click)", () => ui.CheckUpdates, v => { ui.CheckUpdates = v; SaveUi(true); }, page);
+            var u = NmBox(page.transform, "upd", false, 6, 44);
+            NmText(u.transform, UpdateStatus, page, 44, 13).Let(g => Size(g, 44, -1, 1));
+            NmButton(u.transform, () => "Check now", () => CheckForUpdate(true), page, 44, 120, 0)
+                .Let(g => EnableWhen(g, () => Upd != UpdateState.Checking && Upd != UpdateState.Downloading, page));
+            NmButton(u.transform, () => "Install", InstallUpdate, page, 44, 100, 0)
+                .Let(g => ShowWhen(g, () => Upd == UpdateState.Available, page));
+
             NmSection(page.transform, "Pinned stats", page);
             var p = NmBox(page.transform, "pins", false, 6, 44);
             NmText(p.transform, () => pinned.Count + " pinned stat(s)" + Col(CGrey, Small("  kept after recalculations and restarts")), page, 44, 14).Let(x => Size(x, 44, -1, 1));
@@ -953,7 +968,8 @@ namespace SlayerTools
                 "- Buttons that cannot work right now are greyed out instead of failing.\n" +
                 "- Real ON/OFF switches with a description for every option.\n" +
                 "- Dangerous actions ask for a second click; more of them can be undone.\n" +
-                "- F2 opens the menu from anywhere; the mouse back button goes back.",
+                "- F2 opens the menu from anywhere; the mouse back button goes back.\n" +
+                "- 6.1: updates itself. New versions show up on Home with an Install button.",
                 page, 0, 13);
             var g = NmCols(page.transform, 1, 44);
             NmButton(g.transform, () => "Got it", () => Go("home"), page);

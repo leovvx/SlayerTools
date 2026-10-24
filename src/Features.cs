@@ -696,6 +696,7 @@ namespace SlayerTools
                 if (!firstBackupDone) { firstBackupDone = true; BackupSave("session-start", true); }
             }
             SampleTick();
+            UpdateTick();
             ChestTick();
             AutoSpheresTick();
         }
